@@ -7,10 +7,10 @@ This is MDNet with Python3.5
 For details about MDNet please refer to the [paper](https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Nam_Learning_Multi-Domain_Convolutional_CVPR_2016_paper.pdf) MDNet: Learning Multi-Domain Convolutional Neural Networks for Visual Tracking
 
 ## ToDo List
-~~1.Transfer from python2 to python3~~
-2.TensorBoard support
-3.Use FocalLoss instead of traditional CrossEntropy Loss
-4.Use MobileNet as the backbone net
+~~1.Transfer from python2 to python3~~  
+2.TensorBoard support  
+3.Use FocalLoss instead of traditional CrossEntropy Loss  
+4.Use MobileNet as the backbone net  
 
 ## Prerequisites
   - python 3.5
@@ -35,3 +35,4 @@ For details about MDNet please refer to the [paper](https://www.cv-foundation.or
    python prepro_data.py
    python train_mdnet.py
 	```
+  
