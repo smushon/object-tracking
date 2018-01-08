@@ -8,13 +8,14 @@ For details about MDNet please refer to the [paper](https://www.cv-foundation.or
 
 ## ToDo List
 ~~1.Transfer from python2 to python3~~  
-2.TensorBoard support  
+~~2.TensorBoard support~~  
 3.Use FocalLoss instead of traditional CrossEntropy Loss  
 4.Use MobileNet as the backbone net  
 
 ## Prerequisites
   - python 3.5
   - [PyTorch](http://pytorch.org/) and its dependencies
+  - [TensorBoardX](https://github.com/lanpa/tensorboard-pytorch) and its dependencies
  
 ## Usage
  

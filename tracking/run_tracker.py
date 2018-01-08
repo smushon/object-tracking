@@ -19,6 +19,7 @@ from model import *
 from bbreg import *
 from options import *
 from gen_config import *
+from prin_gen_config import *
 
 np.random.seed(123)
 torch.manual_seed(456)
@@ -322,7 +323,10 @@ if __name__ == "__main__":
     assert (args.seq != '' or args.json != '')
 
     # Generate sequence config
-    img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
+    # img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
+
+    # Generate sequence of princeton dataset config
+    img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
 
     # Run tracker
     result, result_bb, fps = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)

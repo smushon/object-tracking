@@ -7,9 +7,10 @@ import torch
 import torch.optim as optim
 from torch.autograd import Variable
 
-from pretrain.data_prov import *
-from modules.model import *
-from pretrain.options import *
+from data_prov import *
+from model import *
+from options import *
+from tensorboardX import SummaryWriter
 
 img_home = '/data1/tracking'
 data_path = 'data/vot-otb.pkl'
@@ -40,11 +41,17 @@ def train_mdnet():
     K = len(data)
     dataset = [None] * K
     # for k, (seqname, seq) in enumerate(data.iteritems()):
+    seqnames = []
     for k,  seqname in enumerate(data):
         img_list=data[seqname]['images']
         gt = data[seqname]['gt']
         img_dir = os.path.join(img_home, seqname)
         dataset[k] = RegionDataset(img_dir, img_list, gt, opts)
+        seqnames.append(seqname)
+
+    # prepare for tensorboardX
+    if opts['use_summary']:
+        summary = SummaryWriter(comment='origin_MDNet')
 
     ## Init model ##
     model = MDNet(opts['init_model_path'], K)
@@ -58,10 +65,14 @@ def train_mdnet():
     optimizer = set_optimizer(model, opts['lr'])
 
     best_prec = 0.
+    prec_per = dict()
+    for s in seqnames:
+        prec_per[s]=0
     for i in range(opts['n_cycles']):
         print("==== Start Cycle %d ====" % (i))
         k_list = np.random.permutation(K)
         prec = np.zeros(K)
+        total_loss = 0
         for j, k in enumerate(k_list):
             tic = time.time()
             pos_regions, neg_regions = dataset[k].next()
@@ -77,6 +88,7 @@ def train_mdnet():
             neg_score = model(neg_regions, k)
 
             loss = criterion(pos_score, neg_score)
+            total_loss += loss.clone().cpu().data[0]
             model.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])
@@ -85,10 +97,16 @@ def train_mdnet():
             prec[k] = evaluator(pos_score, neg_score)
 
             toc = time.time() - tic
-            print("Cycle %2d, K %2d (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
-                  (i, j, k, loss.data[0], prec[k], toc))
+            print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
+                  (i, j, K, k, loss.data[0], prec[k], toc))
 
         cur_prec = prec.mean()
+        if opts['use_summary']:
+            summary.add_scalar('total_loss',total_loss/K,i)
+            for index, _ in enumerate(seqnames):
+                prec_per[seqnames[index]]=prec[index]
+            summary.add_scalars('precision_per_seq',prec_per,i)
+            summary.add_scalar('mean_precision',cur_prec,i)
         print("Mean Precision: %.3f" % (cur_prec))
         if cur_prec > best_prec:
             best_prec = cur_prec
@@ -99,6 +117,9 @@ def train_mdnet():
             torch.save(states, opts['model_path'])
             if opts['use_gpu']:
                 model = model.cuda()
+
+    if opts['use_summary']:
+        summary.close()
 
 
 if __name__ == "__main__":
