@@ -6,11 +6,14 @@ import time
 import torch
 import torch.optim as optim
 from torch.autograd import Variable
+import numpy as np
+import torch.nn as nn
 
 from data_prov import *
 from model import *
 from options import *
 from tensorboardX import SummaryWriter
+from FocalLoss import *
 
 img_home = '/data1/tracking'
 data_path = 'data/vot-otb.pkl'
@@ -49,18 +52,25 @@ def train_mdnet():
         dataset[k] = RegionDataset(img_dir, img_list, gt, opts)
         seqnames.append(seqname)
 
+    use_summary = opts['use_summary']
+    use_gpu = opts['use_gpu']
     # prepare for tensorboardX
-    if opts['use_summary']:
-        summary = SummaryWriter(comment='origin_MDNet')
+    if use_summary:
+        summary = SummaryWriter(comment='CrossEntropyLoss')
+        summary_different_model = SummaryWriter('runs/comparsion_between_model/CrossEntropyLoss_MDNet')
 
     ## Init model ##
     model = MDNet(opts['init_model_path'], K)
-    if opts['use_gpu']:
+    if use_gpu:
         model = model.cuda()
     model.set_learnable_params(opts['ft_layers'])
 
     ## Init criterion and optimizer ##
-    criterion = BinaryLoss()
+    # criterion = BinaryLoss()
+    # posLoss = FocalLoss(class_num=2,size_average=False,alpha=torch.ones(2,1)*0.25)
+    # negLoss = FocalLoss(class_num=2, size_average=False,alpha=torch.ones(2,1)*0.25)
+    posLoss = nn.CrossEntropyLoss(size_average=False)
+    negLoss = nn.CrossEntropyLoss(size_average=False)
     evaluator = Precision()
     optimizer = set_optimizer(model, opts['lr'])
 
@@ -68,6 +78,7 @@ def train_mdnet():
     prec_per = dict()
     for s in seqnames:
         prec_per[s]=0
+
     for i in range(opts['n_cycles']):
         print("==== Start Cycle %d ====" % (i))
         k_list = np.random.permutation(K)
@@ -77,17 +88,29 @@ def train_mdnet():
             tic = time.time()
             pos_regions, neg_regions = dataset[k].next()
 
+            pos_target = np.ones(pos_regions.shape[0], dtype=int)
+            neg_target = np.zeros(neg_regions.shape[0], dtype=int)
+            pos_target = torch.from_numpy(pos_target)
+            neg_target = torch.from_numpy(neg_target)
+            pos_target = Variable(pos_target)
+            neg_target = Variable(neg_target)
+
             pos_regions = Variable(pos_regions)
             neg_regions = Variable(neg_regions)
 
-            if opts['use_gpu']:
+            if use_gpu:
                 pos_regions = pos_regions.cuda()
                 neg_regions = neg_regions.cuda()
+                pos_target = pos_target.cuda()
+                neg_target = neg_target.cuda()
 
             pos_score = model(pos_regions, k)
             neg_score = model(neg_regions, k)
 
-            loss = criterion(pos_score, neg_score)
+            pos_loss = posLoss(pos_score,pos_target)
+            neg_loss = negLoss(neg_score,neg_target)
+
+            loss = pos_loss + neg_loss
             total_loss += loss.clone().cpu().data[0]
             model.zero_grad()
             loss.backward()
@@ -101,25 +124,28 @@ def train_mdnet():
                   (i, j, K, k, loss.data[0], prec[k], toc))
 
         cur_prec = prec.mean()
-        if opts['use_summary']:
+        if use_summary:
             summary.add_scalar('total_loss',total_loss/K,i)
             for index, _ in enumerate(seqnames):
                 prec_per[seqnames[index]]=prec[index]
             summary.add_scalars('precision_per_seq',prec_per,i)
             summary.add_scalar('mean_precision',cur_prec,i)
+            summary_different_model.add_scalar('total_loss',total_loss/K,i)
+            summary_different_model.add_scalar('mean_precision',cur_prec,i)
         print("Mean Precision: %.3f" % (cur_prec))
         if cur_prec > best_prec:
             best_prec = cur_prec
-            if opts['use_gpu']:
+            if use_gpu:
                 model = model.cpu()
             states = {'shared_layers': model.layers.state_dict()}
             print("Save model to %s" % opts['model_path'])
             torch.save(states, opts['model_path'])
-            if opts['use_gpu']:
+            if use_gpu:
                 model = model.cuda()
 
-    if opts['use_summary']:
+    if use_summary:
         summary.close()
+        summary_different_model.close()
 
 
 if __name__ == "__main__":

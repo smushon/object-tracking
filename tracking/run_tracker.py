@@ -20,6 +20,7 @@ from bbreg import *
 from options import *
 from gen_config import *
 from prin_gen_config import *
+from FocalLoss import *
 
 np.random.seed(123)
 torch.manual_seed(456)
@@ -108,8 +109,19 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
         pos_score = model(batch_pos_feats, in_layer=in_layer)
         neg_score = model(batch_neg_feats, in_layer=in_layer)
 
+        score = torch.cat((pos_score,neg_score),dim=0)
+
+        pos_target = np.ones(pos_score.shape[0], dtype=int)
+        neg_target = np.zeros(neg_score.shape[0], dtype=int)
+        target = np.hstack((pos_target,neg_target))
+        target = torch.from_numpy(target)
+        target = Variable(target)
+
+        if opts['use_gpu']:
+            target = target.cuda()
+
         # optimize
-        loss = criterion(pos_score, neg_score)
+        loss = criterion(score, target)
         model.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])
@@ -133,7 +145,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     model.set_learnable_params(opts['ft_layers'])
 
     # Init criterion and optimizer 
-    criterion = BinaryLoss()
+    # criterion = BinaryLoss()
+    criterion = FocalLoss(class_num=2,alpha=torch.ones(2,1)*0.25,size_average=False)
     init_optimizer = set_optimizer(model, opts['lr_init'])
     update_optimizer = set_optimizer(model, opts['lr_update'])
 
@@ -287,9 +300,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             im.set_data(image)
 
             if gt is not None:
-                gt_rect.set_xy(gt[i, :2])
-                gt_rect.set_width(gt[i, 2])
-                gt_rect.set_height(gt[i, 3])
+                if i<gt.shape[0]:
+                    gt_rect.set_xy(gt[i, :2])
+                    gt_rect.set_width(gt[i, 2])
+                    gt_rect.set_height(gt[i, 3])
+                else:
+                    gt_rect.set_xy(np.array([np.nan,np.nan]))
+                    gt_rect.set_width(np.nan)
+                    gt_rect.set_height(np.nan)
 
             rect.set_xy(result_bb[i, :2])
             rect.set_width(result_bb[i, 2])
@@ -305,8 +323,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             print("Frame %d/%d, Score %.3f, Time %.3f" % \
                   (i, len(img_list), target_score, spf))
         else:
-            print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
-                  (i, len(img_list), overlap_ratio(gt[i], result_bb[i])[0], target_score, spf))
+            if i<gt.shape[0]:
+                print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
+                    (i, len(img_list), overlap_ratio(gt[i], result_bb[i])[0], target_score, spf))
+            else:
+                print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
+                    (i, len(img_list), overlap_ratio(np.array([np.nan,np.nan,np.nan,np.nan]), result_bb[i])[0], target_score, spf))
 
     fps = len(img_list) / spf_total
     return result, result_bb, fps
@@ -323,10 +345,10 @@ if __name__ == "__main__":
     assert (args.seq != '' or args.json != '')
 
     # Generate sequence config
-    img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
+    # img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
 
     # Generate sequence of princeton dataset config
-    # img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
+    img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
 
     # Run tracker
     result, result_bb, fps = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)
