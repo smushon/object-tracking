@@ -1,7 +1,16 @@
 from collections import OrderedDict
 
+import torch
+device = torch.device('cuda:0')
+total_mem = torch.cuda.get_device_properties(device).total_memory
+
 opts = OrderedDict()
-opts['use_gpu'] = True
+if total_mem > 2500000000:
+    opts['use_gpu'] = True
+    print('using gpu for tracking')
+else:
+    opts['use_gpu'] = False
+    print('using cpu for tracking')
 
 opts['model_path'] = '../models/mdnet_vot-otb.pth'
 

@@ -12,7 +12,11 @@ import torch.utils.data as data
 import torch.optim as optim
 from torch.autograd import Variable
 
-sys.path.insert(0, '../modules')
+# needed for following usage:
+#  cd tracking
+#  python run_tracker.py -s DragonBaby [-d (display fig)] [-f (save fig)]
+sys.path.insert(0,'../modules')
+
 from sample_generator import *
 from data_prov import *
 from model import *
@@ -21,6 +25,8 @@ from options import *
 from gen_config import *
 from prin_gen_config import *
 from FocalLoss import *
+
+#from pynvml import *
 
 np.random.seed(123)
 torch.manual_seed(456)
@@ -65,9 +71,9 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
 
     pos_idx = np.random.permutation(pos_feats.size(0))
     neg_idx = np.random.permutation(neg_feats.size(0))
-    while (len(pos_idx) < batch_pos * maxiter):
+    while len(pos_idx) < batch_pos * maxiter:
         pos_idx = np.concatenate([pos_idx, np.random.permutation(pos_feats.size(0))])
-    while (len(neg_idx) < batch_neg_cand * maxiter):
+    while len(neg_idx) < batch_neg_cand * maxiter:
         neg_idx = np.concatenate([neg_idx, np.random.permutation(neg_feats.size(0))])
     pos_pointer = 0
     neg_pointer = 0
@@ -131,6 +137,7 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
 
 
 def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
+
     # Init bbox
     target_bbox = np.array(init_bbox)
     result = np.zeros((len(img_list), 4))
@@ -144,22 +151,57 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
         model = model.cuda()
     model.set_learnable_params(opts['ft_layers'])
 
-    # Init criterion and optimizer 
+    # Init criterion
     # criterion = BinaryLoss()
-    criterion = FocalLoss(class_num=2,alpha=torch.ones(2,1)*0.25,size_average=False)
+    criterion = FocalLoss(class_num=2, alpha=torch.ones(2, 1)*0.25, size_average=False)
+
+    # Init Optimizers
+    # e.g. SGD with a list of 6 parameter groups
+    # e.g. parameter group:
+    #     dampening: 0
+    #     lr: 0.0001  <--  learning rate, changing
+    #     momentum: 0.9
+    #     nesterov: False
+    #     weight_decay: 0.0005
     init_optimizer = set_optimizer(model, opts['lr_init'])
     update_optimizer = set_optimizer(model, opts['lr_update'])
 
+    # --------
+    print('initalizing...')
     tic = time.time()
+
+    # SampleGenerator -- returns a list of random BBs (translate, scale) around a given BB
+    # gen_samples -- will attempt to call SampleGenerator under additional constaints (until give up)
+    #       ratio constraint -- IoU between generated and original BB in specified range
+    #       scale constraint -- relative size change of BB (compared with original BB) is in specified range
+    # forward_samples -- crops the image per the list of BBs (i.e. samples) and forwards each crop
+    #       for each crop, returns the output out_layer='conv3' (each output is an entire feature layer)
+    #       for online training, we later specify e.g. 'fc6' instead of the default 'conv3'
+    # BBRegressor -- inference
+    #       input: BB and its features (i.e. forward_samples)
+    #       operation: use linear regression to predict ground truth BB
+    #       output: corrections to BB coordinates (i.e. fine tune) towards predicted GT-BB
+    # BBRegressor -- training
+    #       input: BB and its features (i.e. forward_samples) + GT-BB (e.g. marked target on first frame)
+    # pos_examples -- defined by having large IoU with ground truth, e.g. in range [0.7,1]
+    # neg_examples -- defined by having small IoU with ground truth, e.g. in range [0,0.3]
+    # train -- updates the weights of the FC layers (fc4-fc6)
+    #       features of negative examples should output scores --> 0
+    #       features of positive examples should output scores --> 1
+    #       training iterations choose worst negative examples, i.e. those with highest scores
+    #       loss function is FocalLoss(class_num=2, alpha=torch.ones(2, 1)*0.25, size_average=False)
+
     # Load first image
     image = Image.open(img_list[0]).convert('RGB')
 
     # Train bbox regressor
+    print('   training BB regressor...')
     bbreg_examples = gen_samples(SampleGenerator('uniform', image.size, 0.3, 1.5, 1.1),
                                  target_bbox, opts['n_bbreg'], opts['overlap_bbreg'], opts['scale_bbreg'])
     bbreg_feats = forward_samples(model, image, bbreg_examples)
-    bbreg = BBRegressor(image.size)
+    bbreg = BBRegressor(image.size)  # image_size is e.g. (640, 360)
     bbreg.train(bbreg_feats, bbreg_examples, target_bbox)
+    print('   finished training BB regressor.')
 
     # Draw pos/neg samples
     pos_examples = gen_samples(SampleGenerator('gaussian', image.size, 0.1, 1.2),
@@ -173,12 +215,16 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     neg_examples = np.random.permutation(neg_examples)
 
     # Extract pos/neg features
+    print('   extracting features from BB samples...')
     pos_feats = forward_samples(model, image, pos_examples)
     neg_feats = forward_samples(model, image, neg_examples)
     feat_dim = pos_feats.size(-1)
+    print('   finished extracting features from BB samples.')
 
     # Initial training
+    print('   first training pass on FC layers...')
     train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'])
+    print('   finished first training pass on FC layers.')
 
     # Init sample generators
     sample_generator = SampleGenerator('gaussian', image.size, opts['trans_f'], opts['scale_f'], valid=True)
@@ -190,6 +236,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     neg_feats_all = [neg_feats[:opts['n_neg_update']]]
 
     spf_total = time.time() - tic
+    print('initialization done, Time: %.3f' % (spf_total))
 
     # Display
     savefig = savefig_dir != ''
@@ -220,6 +267,28 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
 
     # Main loop
     for i in range(1, len(img_list)):
+
+        # given frame[i], we take prediction (target_bbox) we made in frame[i-1]
+        # we generate BB samples around it and forward through CNN+FC+new_head('fc6') to construct a best candidate BB
+        # this candidate is called 'target_bbox' and is the average coordinates of top 5 samples (based on 'fc6' scores)
+        # success is defined by 'fc6' providing high enough mean score of those top 5 BBs
+        #
+        # if success, we keep this new 'target_bbox' and also calculate a new GT-BB prediction
+        # regression fine-tunes those top 5 (i.e. highest score) BB samples
+        # prediction of GT-BB is taken as average of regressions of those top 5 BBs
+        # this fine-tuned (and final) prediction is called 'bbreg_bbox'
+        #
+        # if success, we also generate new positive and negative BB samples around 'target_bbox'
+        # we forward them and record their output features ('conv3')
+        # lets call them 'positive features' and 'negative features' for ease
+        # the recorded history of positive samples is longer (100) then the history of negative samples (20)
+        # we will use both stacks of recorded features for the long- and short-term updates
+        #
+        # updates
+        # long-term - if success happenned on a modulo 10 iteration, we perform update using all available
+        #       positive and negative features recorded
+        # short-term - if not success, we perform similar update routine using all available negative features
+        #       but limit the number of positive features
 
         tic = time.time()
         # Load image
@@ -335,8 +404,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
 
 
 if __name__ == "__main__":
+
+    device = torch.device('cuda:0')
+    total_mem = torch.cuda.get_device_properties(device).total_memory
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--seq', default='', help='input seq')
+    parser.add_argument('-s', '--seq', default='DragonBaby', help='input seq')
     parser.add_argument('-j', '--json', default='', help='input json')
     parser.add_argument('-f', '--savefig', action='store_true', default=False)
     parser.add_argument('-d', '--display', action='store_true', default=True)
@@ -344,11 +417,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     assert (args.seq != '' or args.json != '')
 
+    # ------
+    # img_list - list of (relative path) file names of the jpg images
+    #   example: '../dataset/OTB/DragonBaby/img/img####.jpg'
+    # gt - a (2-dim, N x 4) list of 4 coordinates of ground truth BB for each image
+    # init_bbox - this is gt[0]
+
     # Generate sequence config
     # img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
 
     # Generate sequence of princeton dataset config
     img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
+
+    # ------
 
     # Run tracker
     result, result_bb, fps = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)

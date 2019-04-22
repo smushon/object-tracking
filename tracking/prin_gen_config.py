@@ -7,13 +7,19 @@ def prin_gen_config(args):
     if args.seq != '':
         # generate config from a sequence name
 
-        seq_home = '/data1/tracking/princeton/validation'
+        # seq_home = '/data1/tracking/princeton/validation'
+        seq_home = '../dataset/OTB'
         save_home = '../result_fig'
         result_home = '../result'
 
         seq_name = args.seq
-        img_dir = os.path.join(seq_home, seq_name, 'rgb')
+        # img_dir = os.path.join(seq_home, seq_name, 'rgb')
+        img_dir = os.path.join(seq_home, seq_name, 'img')
+        # img_dir = seq_home + '/' + seq_name + '/rgb'
         gt_path = os.path.join(seq_home, seq_name, 'groundtruth_rect.txt')
+        # gt_path = seq_home + '/' + seq_name + '/groundtruth_rect.txt'
+
+        print('loading images from: ', img_dir)
 
         img_list = os.listdir(img_dir)
         img_list.sort()
