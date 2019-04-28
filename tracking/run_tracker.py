@@ -25,6 +25,8 @@ from options import *
 from gen_config import *
 from prin_gen_config import *
 from FocalLoss import *
+from tracking_utils import *
+
 
 #from pynvml import *
 
@@ -32,116 +34,28 @@ np.random.seed(123)
 torch.manual_seed(456)
 torch.cuda.manual_seed(789)
 
-
-def forward_samples(model, image, samples, out_layer='conv3'):
-    model.eval()
-    extractor = RegionExtractor(image, samples, opts['img_size'], opts['padding'], opts['batch_test'])
-    for i, regions in enumerate(extractor):
-        regions = Variable(regions)
-        if opts['use_gpu']:
-            regions = regions.cuda()
-        feat = model(regions, out_layer=out_layer)
-        if i == 0:
-            feats = feat.data.clone()
-        else:
-            feats = torch.cat((feats, feat.data.clone()), 0)
-    return feats
-
-
-def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['momentum'], w_decay=opts['w_decay']):
-    params = model.get_learnable_params()
-    param_list = []
-    for k, p in params.items():
-        lr = lr_base
-        for l, m in lr_mult.items():
-            if k.startswith(l):
-                lr = lr_base * m
-        param_list.append({'params': [p], 'lr': lr})
-    optimizer = optim.SGD(param_list, lr=lr, momentum=momentum, weight_decay=w_decay)
-    return optimizer
-
-
-def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='fc4'):
-    model.train()
-
-    batch_pos = opts['batch_pos']
-    batch_neg = opts['batch_neg']
-    batch_test = opts['batch_test']
-    batch_neg_cand = max(opts['batch_neg_cand'], batch_neg)
-
-    pos_idx = np.random.permutation(pos_feats.size(0))
-    neg_idx = np.random.permutation(neg_feats.size(0))
-    while len(pos_idx) < batch_pos * maxiter:
-        pos_idx = np.concatenate([pos_idx, np.random.permutation(pos_feats.size(0))])
-    while len(neg_idx) < batch_neg_cand * maxiter:
-        neg_idx = np.concatenate([neg_idx, np.random.permutation(neg_feats.size(0))])
-    pos_pointer = 0
-    neg_pointer = 0
-
-    for iter in range(maxiter):
-
-        # select pos idx
-        pos_next = pos_pointer + batch_pos
-        pos_cur_idx = pos_idx[pos_pointer:pos_next]
-        pos_cur_idx = pos_feats.new(pos_cur_idx).long()
-        pos_pointer = pos_next
-
-        # select neg idx
-        neg_next = neg_pointer + batch_neg_cand
-        neg_cur_idx = neg_idx[neg_pointer:neg_next]
-        neg_cur_idx = neg_feats.new(neg_cur_idx).long()
-        neg_pointer = neg_next
-
-        # create batch
-        batch_pos_feats = Variable(pos_feats.index_select(0, pos_cur_idx))
-        batch_neg_feats = Variable(neg_feats.index_select(0, neg_cur_idx))
-
-        # hard negative mining
-        if batch_neg_cand > batch_neg:
-            model.eval()
-            for start in range(0, batch_neg_cand, batch_test):
-                end = min(start + batch_test, batch_neg_cand)
-                score = model(batch_neg_feats[start:end], in_layer=in_layer)
-                if start == 0:
-                    neg_cand_score = score.data[:, 1].clone()
-                else:
-                    neg_cand_score = torch.cat((neg_cand_score, score.data[:, 1].clone()), 0)
-
-            _, top_idx = neg_cand_score.topk(batch_neg)
-            batch_neg_feats = batch_neg_feats.index_select(0, Variable(top_idx))
-            model.train()
-
-        # forward
-        pos_score = model(batch_pos_feats, in_layer=in_layer)
-        neg_score = model(batch_neg_feats, in_layer=in_layer)
-
-        score = torch.cat((pos_score,neg_score),dim=0)
-
-        pos_target = np.ones(pos_score.shape[0], dtype=int)
-        neg_target = np.zeros(neg_score.shape[0], dtype=int)
-        target = np.hstack((pos_target,neg_target))
-        target = torch.from_numpy(target)
-        target = Variable(target)
-
-        if opts['use_gpu']:
-            target = target.cuda()
-
-        # optimize
-        loss = criterion(score, target)
-        model.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])
-        optimizer.step()
-
-        # print "Iter %d, Loss %.4f" % (iter, loss.data[0])
+# speed-ups
+load_features_from_file = True
+save_features_to_file = False
+if load_features_from_file:
+    save_features_to_file = False
+if opts['use_gpu']:
+    load_features_from_file = False
+fewer_images = False
 
 
 def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
 
+    # num_images include frame 0
+    if fewer_images:
+        num_images = 3
+    else:
+        num_images = len(img_list)
+
     # Init bbox
     target_bbox = np.array(init_bbox)
-    result = np.zeros((len(img_list), 4))
-    result_bb = np.zeros((len(img_list), 4))
+    result = np.zeros((num_images, 4))
+    result_bb = np.zeros((num_images, 4))
     result[0] = target_bbox
     result_bb[0] = target_bbox
 
@@ -154,6 +68,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     # Init criterion
     # criterion = BinaryLoss()
     criterion = FocalLoss(class_num=2, alpha=torch.ones(2, 1)*0.25, size_average=False)
+    iou_loss = MyIoULoss()
+    iou_loss2 = MyIoULoss2()
 
     # Init Optimizers
     # e.g. SGD with a list of 6 parameter groups
@@ -185,10 +101,10 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     #       input: BB and its features (i.e. forward_samples) + GT-BB (e.g. marked target on first frame)
     # pos_examples -- defined by having large IoU with ground truth, e.g. in range [0.7,1]
     # neg_examples -- defined by having small IoU with ground truth, e.g. in range [0,0.3]
-    # train -- updates the weights of the FC layers (fc4-fc6)
+    # train -- updates the weights of the common FC layers (fc4-fc5) and the new FC layer (fc6)
     #       features of negative examples should output scores --> 0
     #       features of positive examples should output scores --> 1
-    #       training iterations choose worst negative examples, i.e. those with highest scores
+    #       hard mining - training iterations choose the worst negative examples, i.e. those with highest scores[1]
     #       loss function is FocalLoss(class_num=2, alpha=torch.ones(2, 1)*0.25, size_average=False)
 
     # Load first image
@@ -214,16 +130,37 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
                     target_bbox, opts['n_neg_init'] // 2, opts['overlap_neg_init'])])
     neg_examples = np.random.permutation(neg_examples)
 
-    # Extract pos/neg features
-    print('   extracting features from BB samples...')
-    pos_feats = forward_samples(model, image, pos_examples)
-    neg_feats = forward_samples(model, image, neg_examples)
+    ######################
+    if load_features_from_file:
+        pos_feats = torch.load('../features/pos_feats.pt')
+        neg_feats = torch.load('../features/neg_feats.pt')
+    else:
+        # Extract pos/neg features
+        print('   extracting features from BB samples...')
+        pos_feats = forward_samples(model, image, pos_examples)
+        neg_feats = forward_samples(model, image, neg_examples)
+        if save_features_to_file:
+            torch.save(pos_feats, '../features/pos_feats.pt')
+            torch.save(neg_feats, '../features/neg_feats.pt')
+        print('   finished extracting features from BB samples.')
+    ######################
     feat_dim = pos_feats.size(-1)
-    print('   finished extracting features from BB samples.')
+
+    ######################
+    # Extract pos/neg IoUs
+    pos_ious = overlap_ratio(pos_examples, target_bbox)
+    neg_ious = overlap_ratio(neg_examples, target_bbox)
+    pos_ious_tensor = torch.from_numpy(pos_ious)
+    neg_ious_tensor = torch.from_numpy(neg_ious)
+    ######################
+
 
     # Initial training
     print('   first training pass on FC layers...')
-    train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'])
+    train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
+          iou_loss=iou_loss2, pos_ious=pos_ious, neg_ious=neg_ious)
+    # train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
+    #       iou_loss=iou_loss2, pos_ious=pos_ious_tensor, neg_ious=neg_ious_tensor)
     print('   finished first training pass on FC layers.')
 
     # Init sample generators
@@ -234,6 +171,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     # Init pos/neg features for update
     pos_feats_all = [pos_feats[:opts['n_pos_update']]]
     neg_feats_all = [neg_feats[:opts['n_neg_update']]]
+
+    ######################
+    # Init pos/neg ious for update
+    pos_ious_all = [pos_ious[:opts['n_pos_update']]]
+    neg_ious_all = [neg_ious[:opts['n_neg_update']]]
+    ######################
 
     spf_total = time.time() - tic
     print('initialization done, Time: %.3f' % (spf_total))
@@ -250,10 +193,19 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
         fig.add_axes(ax)
         im = ax.imshow(image, aspect='auto')
 
+        result_ious = np.nan
         if gt is not None:
             gt_rect = plt.Rectangle(tuple(gt[0, :2]), gt[0, 2], gt[0, 3],
                                     linewidth=3, edgecolor="#00ff00", zorder=1, fill=False)
             ax.add_patch(gt_rect)
+            #################
+            num_gts = np.minimum(gt.shape[0], num_images)
+            gt_centers = gt[:num_gts, :2] + gt[:num_gts, 2:] / 2
+            result_centers = np.zeros_like(gt[:num_gts, :2])
+            result_centers[0] = gt_centers[0]
+            result_ious = np.zeros(num_gts, dtype='float64')
+            result_ious[0] = 1.
+            #################
 
         rect = plt.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3],
                              linewidth=3, edgecolor="#ff0000", zorder=1, fill=False)
@@ -266,25 +218,30 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             fig.savefig(os.path.join(savefig_dir, '0000.jpg'), dpi=dpi)
 
     # Main loop
-    for i in range(1, len(img_list)):
+    for i in range(1, num_images):
 
-        # given frame[i], we take prediction (target_bbox) we made in frame[i-1]
-        # we generate BB samples around it and forward through CNN+FC+new_head('fc6') to construct a best candidate BB
-        # this candidate is called 'target_bbox' and is the average coordinates of top 5 samples (based on 'fc6' scores)
-        # success is defined by 'fc6' providing high enough mean score of those top 5 BBs
+        # given frame[i],
+        # we take BB estimation ('target_bbox') we made in frame[i-1]
+        # we generate BB samples around it and forward through CNN+FC+new_head('fc6')
+        # the new 'target_bbox' is the average (per coordinate) of top 5 samples (based on 'fc6' scores[1])
+        # success is defined if the mean score[1] of those top 5 BBs passes some threshold
+        # note: score[0] is the background classification, score[1] is the target classification
+        # note: the paper says new 'target_bbox' is the single sample with highest "positive score" (aka scores[1])
+        # note: both scores can be negative. later the focal loss computes softmax to squeeze their values to (0,1)
         #
-        # if success, we keep this new 'target_bbox' and also calculate a new GT-BB prediction
-        # regression fine-tunes those top 5 (i.e. highest score) BB samples
-        # prediction of GT-BB is taken as average of regressions of those top 5 BBs
+        # if "success",
+        # we keep this new 'target_bbox' and also calculate a new GT-BB prediction as follows:
+        # regression fine-tunes those top 5 (i.e. highest score[1]) BB samples
+        # prediction of GT-BB is taken as average (per coordinate) of regressions of those top 5 BBs
         # this fine-tuned (and final) prediction is called 'bbreg_bbox'
         #
-        # if success, we also generate new positive and negative BB samples around 'target_bbox'
+        # if "success", we also generate new positive and negative BB samples around the new 'target_bbox'
         # we forward them and record their output features ('conv3')
         # lets call them 'positive features' and 'negative features' for ease
-        # the recorded history of positive samples is longer (100) then the history of negative samples (20)
+        # the recorded history of positive samples is longer (100 frames) then of negative samples (20 frames)
         # we will use both stacks of recorded features for the long- and short-term updates
         #
-        # updates
+        # updates:
         # long-term - if success happenned on a modulo 10 iteration, we perform update using all available
         #       positive and negative features recorded
         # short-term - if not success, we perform similar update routine using all available negative features
@@ -348,18 +305,51 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             if len(neg_feats_all) > opts['n_frames_short']:
                 del neg_feats_all[0]
 
+            ######################
+            # Extract pos/neg IoUs
+            # we could also try to use bbreg_bbox instead of target_bbox
+            pos_ious = overlap_ratio(pos_examples, target_bbox)
+            neg_ious = overlap_ratio(neg_examples, target_bbox)
+            pos_ious_all.append(pos_ious)
+            neg_ious_all.append(neg_ious)
+            if len(pos_ious_all) > opts['n_frames_long']:
+                del pos_ious_all[0]
+            if len(neg_ious_all) > opts['n_frames_short']:
+                del neg_ious_all[0]
+            ######################
+
         # Short term update
         if not success:
             nframes = min(opts['n_frames_short'], len(pos_feats_all))
             pos_data = torch.stack(pos_feats_all[-nframes:], 0).view(-1, feat_dim)
             neg_data = torch.stack(neg_feats_all, 0).view(-1, feat_dim)
-            train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'])
+            ######################
+            pos_iou_data = np.concatenate(pos_ious_all[-nframes:])
+            neg_iou_data = np.concatenate(neg_ious_all)
+            pos_ious_data_tensor = torch.from_numpy(pos_iou_data)
+            neg_ious_data_tensor = torch.from_numpy(neg_iou_data)
+            ######################
+            print('short term update')
+            train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
+                  iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data)
+            # train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
+            #       iou_loss=iou_loss2, pos_ious=pos_ious_data_tensor, neg_ious=neg_ious_data_tensor)
 
         # Long term update
         elif i % opts['long_interval'] == 0:
             pos_data = torch.stack(pos_feats_all, 0).view(-1, feat_dim)
             neg_data = torch.stack(neg_feats_all, 0).view(-1, feat_dim)
-            train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'])
+            ######################
+            pos_iou_data = np.concatenate(pos_ious_all)
+            neg_iou_data = np.concatenate(neg_ious_all)
+            pos_ious_data_tensor = torch.from_numpy(pos_iou_data)
+            neg_ious_data_tensor = torch.from_numpy(neg_iou_data)
+            ######################
+            print('long term update')
+            train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
+                  iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data)
+            # train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
+            #       iou_loss=iou_loss2, pos_ious=pos_ious_data_tensor, neg_ious=neg_ious_data_tensor)
 
         spf = time.time() - tic
         spf_total += spf
@@ -373,10 +363,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
                     gt_rect.set_xy(gt[i, :2])
                     gt_rect.set_width(gt[i, 2])
                     gt_rect.set_height(gt[i, 3])
+                    #################
+                    result_ious[i] = overlap_ratio(result_bb[i], gt[i])[0]
+                    result_centers[i] = result_bb[i, :2] + result_bb[i, 2:] / 2
+                    #################
                 else:
                     gt_rect.set_xy(np.array([np.nan,np.nan]))
                     gt_rect.set_width(np.nan)
                     gt_rect.set_height(np.nan)
+
 
             rect.set_xy(result_bb[i, :2])
             rect.set_width(result_bb[i, 2])
@@ -390,17 +385,56 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
 
         if gt is None:
             print("Frame %d/%d, Score %.3f, Time %.3f" % \
-                  (i, len(img_list), target_score, spf))
+                  (i, num_images-1, target_score, spf))
         else:
             if i<gt.shape[0]:
                 print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
-                    (i, len(img_list), overlap_ratio(gt[i], result_bb[i])[0], target_score, spf))
+                    (i, num_images-1, overlap_ratio(gt[i], result_bb[i])[0], target_score, spf))
             else:
                 print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
-                    (i, len(img_list), overlap_ratio(np.array([np.nan,np.nan,np.nan,np.nan]), result_bb[i])[0], target_score, spf))
+                    (i, num_images-1, overlap_ratio(np.array([np.nan,np.nan,np.nan,np.nan]), result_bb[i])[0], target_score, spf))
 
-    fps = len(img_list) / spf_total
-    return result, result_bb, fps
+    #############
+    # result_distanes = np.linalg.norm(result_centers - gt_centers, ord=2)
+    result_distanes = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
+
+    overlap_threshold = np.arange(0,1.01,step=0.01)
+    success_rate = np.zeros(overlap_threshold.size)
+    for i in range(overlap_threshold.shape[0]):
+        success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+
+    location_error_threshold = np.arange(0,50.5,step=0.5)
+    precision = np.zeros(location_error_threshold.size)
+    for i in range(location_error_threshold.shape[0]):
+        precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
+
+    if display:
+        plt.figure()  # new figure
+        plt.plot(result_distanes)
+        plt.ylabel('distances')
+        plt.xlabel('image number')
+
+        plt.figure()  # new figure
+        plt.plot(result_ious)
+        plt.ylabel('ious')
+        plt.xlabel('image number')
+
+        plt.figure()  # new figure
+        plt.plot(success_rate)
+        plt.ylabel('success rate')
+        plt.xlabel('overlap threshold')
+
+        plt.figure()  # new figure
+        plt.plot(precision)
+        plt.ylabel('precision')
+        plt.xlabel('location error threshold')
+
+        # plt.show(block=False)
+        plt.show()
+    #############
+
+    fps = num_images / spf_total
+    return result, result_bb, fps, result_distanes, result_ious
 
 
 if __name__ == "__main__":
@@ -432,11 +466,13 @@ if __name__ == "__main__":
     # ------
 
     # Run tracker
-    result, result_bb, fps = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)
+    result, result_bb, fps, result_distanes, result_ious = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)
 
     # Save result
     res = {}
     res['res'] = result_bb.round().tolist()
     res['type'] = 'rect'
     res['fps'] = fps
+    res['ious'] = result_ious.tolist()
+    res['distances'] = result_distanes.tolist()
     json.dump(res, open(result_path, 'w'), indent=2)
