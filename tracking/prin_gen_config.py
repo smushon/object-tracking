@@ -34,7 +34,8 @@ def prin_gen_config(args):
         result_dir = os.path.join(result_home, seq_name)
         if not os.path.exists(result_dir):
             os.makedirs(result_dir)
-        result_path = os.path.join(result_dir, 'result.json')
+        # result_path = os.path.join(result_dir, 'result.json')
+        result_path = result_dir
 
     elif args.json != '':
         # load config from a json file

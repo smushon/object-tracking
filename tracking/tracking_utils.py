@@ -63,7 +63,8 @@ class MyIoULoss(nn.Module):
         return loss
 
 
-def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='fc4', iou_loss=MyIoULoss(), pos_ious=[], neg_ious=[]):
+def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='fc4',
+          iou_loss=MyIoULoss(), pos_ious=[], neg_ious=[], loss_index=1):
     model.train()
 
     batch_pos = opts['batch_pos']
@@ -155,9 +156,12 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
         # batch_pos_ious_tensor = torch.from_numpy(batch_pos_ious)
         # batch_neg_ious_tensor = torch.from_numpy(batch_neg_ious)
         # ious_loss = iou_loss(batch_pos_ious_tensor, batch_neg_ious_tensor)
+
         # print(ious_loss)
         # print(loss)
-        loss = 0.5*(loss+ious_loss)
+
+        if loss_index==2:
+            loss = 0.5*(loss+ious_loss)
         # loss = ious_loss
         #############
 

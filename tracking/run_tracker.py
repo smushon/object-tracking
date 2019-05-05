@@ -34,6 +34,7 @@ np.random.seed(123)
 torch.manual_seed(456)
 torch.cuda.manual_seed(789)
 
+
 # speed-ups
 load_features_from_file = True
 save_features_to_file = False
@@ -42,9 +43,11 @@ if load_features_from_file:
 if opts['use_gpu']:
     load_features_from_file = False
 fewer_images = False
+losses = {1:'original-focal', 2:'average-with-iou'}
+# loss_index = 1
 
 
-def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
+def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_index=1):
 
     # num_images include frame 0
     if fewer_images:
@@ -158,7 +161,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     # Initial training
     print('   first training pass on FC layers...')
     train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
-          iou_loss=iou_loss2, pos_ious=pos_ious, neg_ious=neg_ious)
+          iou_loss=iou_loss2, pos_ious=pos_ious, neg_ious=neg_ious, loss_index=loss_index)
     # train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
     #       iou_loss=iou_loss2, pos_ious=pos_ious_tensor, neg_ious=neg_ious_tensor)
     print('   finished first training pass on FC layers.')
@@ -187,7 +190,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
         dpi = 80.0
         figsize = (image.size[0] / dpi, image.size[1] / dpi)
 
-        fig = plt.figure(frameon=False, figsize=figsize, dpi=dpi)
+        fig = plt.figure(1,frameon=False, figsize=figsize, dpi=dpi)
         ax = plt.Axes(fig, [0., 0., 1., 1.])
         ax.set_axis_off()
         fig.add_axes(ax)
@@ -331,7 +334,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             ######################
             print('short term update')
             train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
-                  iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data)
+                  iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
             # train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
             #       iou_loss=iou_loss2, pos_ious=pos_ious_data_tensor, neg_ious=neg_ious_data_tensor)
 
@@ -347,7 +350,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
             ######################
             print('long term update')
             train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
-                  iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data)
+                  iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
             # train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
             #       iou_loss=iou_loss2, pos_ious=pos_ious_data_tensor, neg_ious=neg_ious_data_tensor)
 
@@ -398,39 +401,50 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
     # result_distanes = np.linalg.norm(result_centers - gt_centers, ord=2)
     result_distanes = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
 
-    overlap_threshold = np.arange(0,1.01,step=0.01)
-    success_rate = np.zeros(overlap_threshold.size)
-    for i in range(overlap_threshold.shape[0]):
-        success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
-
-    location_error_threshold = np.arange(0,50.5,step=0.5)
-    precision = np.zeros(location_error_threshold.size)
-    for i in range(location_error_threshold.shape[0]):
-        precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
-
-    if display:
-        plt.figure()  # new figure
-        plt.plot(result_distanes)
-        plt.ylabel('distances')
-        plt.xlabel('image number')
-
-        plt.figure()  # new figure
-        plt.plot(result_ious)
-        plt.ylabel('ious')
-        plt.xlabel('image number')
-
-        plt.figure()  # new figure
-        plt.plot(success_rate)
-        plt.ylabel('success rate')
-        plt.xlabel('overlap threshold')
-
-        plt.figure()  # new figure
-        plt.plot(precision)
-        plt.ylabel('precision')
-        plt.xlabel('location error threshold')
-
-        # plt.show(block=False)
-        plt.show()
+    # overlap_threshold = np.arange(0,1.01,step=0.01)
+    # success_rate = np.zeros(overlap_threshold.size)
+    # for i in range(overlap_threshold.shape[0]):
+    #     success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+    #
+    # location_error_threshold = np.arange(0,50.5,step=0.5)
+    # precision = np.zeros(location_error_threshold.size)
+    # for i in range(location_error_threshold.shape[0]):
+    #     precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
+    #
+    # if display:
+    #     plt.figure(2)  # new figure
+    #     # plt.pause(.01)
+    #     plt.plot(result_distanes)
+    #     # print('distances ', result_distanes)
+    #     plt.ylabel('distances')
+    #     plt.xlabel('image number')
+    #     # plt.show(block=False)
+    #
+    #     plt.figure(3)  # new figure
+    #     # plt.pause(.01)
+    #     plt.plot(result_ious)
+    #     # print('ious ', result_ious)
+    #     plt.ylabel('ious')
+    #     plt.xlabel('image number')
+    #     # plt.show(block=False)
+    #
+    #     plt.figure(4)  # new figure
+    #     # plt.pause(.01)
+    #     plt.plot(success_rate)
+    #     plt.ylabel('success rate')
+    #     plt.xlabel('overlap threshold')
+    #     # plt.show(block=False)
+    #
+    #     plt.figure(5)  # new figure
+    #     # plt.pause(.01)
+    #     plt.plot(precision)
+    #     plt.ylabel('precision')
+    #     plt.xlabel('location error threshold')
+    #     # plt.show(block=False)
+    #
+    #     # plt.pause(.01)
+    #     # plt.show(block=False)
+    #     # plt.show()
     #############
 
     fps = num_images / spf_total
@@ -439,8 +453,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False):
 
 if __name__ == "__main__":
 
-    device = torch.device('cuda:0')
-    total_mem = torch.cuda.get_device_properties(device).total_memory
+    # device = torch.device('cuda:0')
+    # total_mem = torch.cuda.get_device_properties(device).total_memory
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seq', default='DragonBaby', help='input seq')
@@ -465,14 +479,73 @@ if __name__ == "__main__":
 
     # ------
 
-    # Run tracker
-    result, result_bb, fps, result_distanes, result_ious = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display)
+    for loss_index in [1, 2]:
 
-    # Save result
-    res = {}
-    res['res'] = result_bb.round().tolist()
-    res['type'] = 'rect'
-    res['fps'] = fps
-    res['ious'] = result_ious.tolist()
-    res['distances'] = result_distanes.tolist()
-    json.dump(res, open(result_path, 'w'), indent=2)
+        for avg_iter in np.arange(0,10):
+
+            # Run tracker
+            result, result_bb, fps, result_distanes, result_ious = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display, loss_index=loss_index)
+
+            if avg_iter == 0:
+                result_distanes_avg = result_distanes
+                result_ious_avg = result_ious
+            else:
+                result_distanes_avg = (result_distanes_avg*avg_iter + result_distanes) / (avg_iter+1)
+                result_ious_avg = (result_ious_avg * avg_iter + result_ious) / (avg_iter + 1)
+
+
+        # Save result
+        res = {}
+        res['res'] = result_bb.round().tolist()
+        res['type'] = 'rect'
+        res['fps'] = fps
+        res['ious'] = result_ious_avg.tolist()
+        res['distances'] = result_distanes_avg.tolist()
+        result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
+        json.dump(res, open(result_fullpath, 'w'), indent=2)
+
+    # ------
+
+    for loss_index in [1, 2]:
+        result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
+        with open(result_fullpath, "r") as read_file:
+            res = json.load(read_file)
+        result_distanes = np.asarray(res['distances'])
+        result_ious = np.asarray(res['ious'])
+
+        overlap_threshold = np.arange(0,1.01,step=0.01)
+        success_rate = np.zeros(overlap_threshold.size)
+        for i in range(overlap_threshold.shape[0]):
+            success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+
+        location_error_threshold = np.arange(0,50.5,step=0.5)
+        precision = np.zeros(location_error_threshold.size)
+        for i in range(location_error_threshold.shape[0]):
+            precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
+
+        if display:
+            plt.figure(2)  # new figure
+            plt.plot(result_distanes, label=losses[loss_index])
+            plt.ylabel('distances')
+            plt.xlabel('image number')
+            plt.legend()
+
+            plt.figure(3)  # new figure
+            plt.plot(result_ious, label=losses[loss_index])
+            plt.ylabel('ious')
+            plt.xlabel('image number')
+            plt.legend()
+
+            plt.figure(4)  # new figure
+            plt.plot(success_rate, label=losses[loss_index])
+            plt.ylabel('success rate')
+            plt.xlabel('overlap threshold')
+            plt.legend()
+
+            plt.figure(5)  # new figure
+            plt.plot(precision, label=losses[loss_index])
+            plt.ylabel('precision')
+            plt.xlabel('location error threshold')
+            plt.legend()
+
+    plt.show()
