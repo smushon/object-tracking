@@ -1,3 +1,4 @@
+import platform
 import os
 import sys
 import pickle
@@ -15,7 +16,18 @@ from options import *
 from tensorboardX import SummaryWriter
 from FocalLoss import *
 
-img_home = '/data1/tracking'
+
+OS = platform.system()
+# img_home = '/data1/tracking'
+if OS == 'Windows':
+    usr_home = 'C:/Users/smush/'
+    img_home = os.path.join(usr_home, 'downloads/VOT')
+elif OS == 'Linux':
+    usr_home = '~/'
+    img_home = os.path.join(usr_home, 'MDNet-data/VOT')
+else:
+    sys.exit("aa! errors!")
+
 data_path = 'data/vot-otb.pkl'
 
 
@@ -41,13 +53,30 @@ def train_mdnet():
         data = pickle.load(fp)
     # and to load values in this dict, should use data[key.encode('utf-8')]
 
-    K = len(data)
+    ###############################################
+    # data is a dictionary with elements like this:
+    # 'vot2016/octopus': {
+    #        'images': ['00000001.jpg', '00000002.jpg', ... , '00000291.jpg'],
+    #        'gt': array([
+    #           [628.85, 264.86, 149.53, 113.96],
+    #           [630.68, 267.29, 149.28, 111.17],
+    #            ...,
+    #            [634.41, 399.8 , 410.39, 231.23]
+    #        ])
+    # }
+    list = []
+    for k, seqname in enumerate(data):
+        list.append(seqname)
+        # print(seqname)
+    ###############################################
+
+    K = len(data)  # K is the number of sequences (58)
     dataset = [None] * K
     # for k, (seqname, seq) in enumerate(data.iteritems()):
     seqnames = []
     for k,  seqname in enumerate(data):
-        img_list=data[seqname]['images']
-        gt = data[seqname]['gt']
+        img_list = data[seqname]['images']
+        gt = data[seqname]['gt']  # gt is a ndarray of rectangles
         img_dir = os.path.join(img_home, seqname)
         dataset[k] = RegionDataset(img_dir, img_list, gt, opts)
         seqnames.append(seqname)
@@ -69,8 +98,15 @@ def train_mdnet():
     # criterion = BinaryLoss()
     # posLoss = FocalLoss(class_num=2,size_average=False,alpha=torch.ones(2,1)*0.25)
     # negLoss = FocalLoss(class_num=2, size_average=False,alpha=torch.ones(2,1)*0.25)
+
+    ################################################
     posLoss = nn.CrossEntropyLoss(size_average=False)
     negLoss = nn.CrossEntropyLoss(size_average=False)
+    # seems to work, only warning. also reduction default seems to be 'mean' so I don't want to touch this
+    # posLoss = nn.CrossEntropyLoss(reduction='sum')
+    # negLoss = nn.CrossEntropyLoss(reduction='sum')
+    ################################################
+
     evaluator = Precision()
     optimizer = set_optimizer(model, opts['lr'])
 
@@ -107,11 +143,21 @@ def train_mdnet():
             pos_score = model(pos_regions, k)
             neg_score = model(neg_regions, k)
 
-            pos_loss = posLoss(pos_score,pos_target)
-            neg_loss = negLoss(neg_score,neg_target)
+            ########################################
+            pos_target = pos_target.type(torch.long)
+            neg_target = neg_target.type(torch.long)
+            ########################################
+
+            pos_loss = posLoss(pos_score, pos_target)
+            neg_loss = negLoss(neg_score, neg_target)
 
             loss = pos_loss + neg_loss
-            total_loss += loss.clone().cpu().data[0]
+            ##########################################
+            if loss.clone().cpu().dim() == 0:
+                total_loss += loss.clone().cpu().data
+            else:
+                total_loss += loss.clone().cpu().data[0]
+            ##########################################
             model.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])
@@ -120,8 +166,16 @@ def train_mdnet():
             prec[k] = evaluator(pos_score, neg_score)
 
             toc = time.time() - tic
-            print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
-                  (i, j, K, k, loss.data[0], prec[k], toc))
+
+            ##########################################
+            if loss.dim() == 0:
+                print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
+                      (i, j, K, k, loss.data, prec[k], toc))
+            else:
+                print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
+                      (i, j, K, k, loss.data[0], prec[k], toc))
+            ##########################################
+
 
         cur_prec = prec.mean()
         if use_summary:

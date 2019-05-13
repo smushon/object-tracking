@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch
 
+
 def append_params(params, module, prefix):
     for child in module.children():
         for k, p in child._parameters.items():
@@ -42,6 +43,32 @@ class LRN(nn.Module):
         x_sumsq = x_tile.sum(dim=1).squeeze(dim=1)[:,2:-2,:,:]
         x = x / ((2.+0.0001*x_sumsq)**0.75)
         return x
+
+
+class IoUPred(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(512, 1),
+        )
+
+    def forward(self, x):
+        scores = None
+        return scores
+
+
+class IoUPredModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.do = nn.Dropout(0.5)
+        self.fc = nn.Linear(512, 1)
+        nn.init.kaiming_normal_(self.fc.weight)
+
+    def forward(self, x):
+        scores = self.fc(self.do(x))
+        return scores
 
 
 class MDNet(nn.Module):
@@ -168,5 +195,11 @@ class Precision():
         scores = torch.cat((pos_score[:,1], neg_score[:,1]), 0)
         topk = torch.topk(scores, pos_score.size(0))[1]
         prec = (topk < pos_score.size(0)).float().sum() / (pos_score.size(0)+1e-8)
-        
-        return prec.data[0]
+
+        #######################
+        if prec.dim() == 0:
+            return prec.data
+        else:
+            return prec.data[0]
+        #######################
+

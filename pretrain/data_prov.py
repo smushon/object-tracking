@@ -10,6 +10,7 @@ sys.path.insert(0,'../modules')
 from sample_generator import *
 from utils import *
 
+
 class RegionDataset(data.Dataset):
     def __init__(self, img_dir, img_list, gt, opts):
 

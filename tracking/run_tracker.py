@@ -36,7 +36,7 @@ torch.cuda.manual_seed(789)
 
 
 # speed-ups
-load_features_from_file = True
+load_features_from_file = False  # True
 save_features_to_file = False
 if load_features_from_file:
     save_features_to_file = False
@@ -102,8 +102,9 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     #       output: corrections to BB coordinates (i.e. fine tune) towards predicted GT-BB
     # BBRegressor -- training
     #       input: BB and its features (i.e. forward_samples) + GT-BB (e.g. marked target on first frame)
-    # pos_examples -- defined by having large IoU with ground truth, e.g. in range [0.7,1]
-    # neg_examples -- defined by having small IoU with ground truth, e.g. in range [0,0.3]
+    # pos_examples -- defined by having large IoU with target_bbox, e.g. in range [0.7,1]
+    # neg_examples -- defined by having small IoU with target_bbox, e.g. in range [0,0.3]
+    # target_bbox -- during init time, this is the GT BB of the object (frame 0)
     # train -- updates the weights of the common FC layers (fc4-fc5) and the new FC layer (fc6)
     #       features of negative examples should output scores --> 0
     #       features of positive examples should output scores --> 1
@@ -479,8 +480,10 @@ if __name__ == "__main__":
 
     # ------
 
+    # we comapare two loss functions
     for loss_index in [1, 2]:
 
+        # each run is random, so we need to average before comparing
         for avg_iter in np.arange(0,10):
 
             # Run tracker

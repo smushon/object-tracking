@@ -12,9 +12,20 @@ if total_mem > 2500000000:
 else:
     opts['use_gpu'] = False
     print('using cpu for training')
-opts['use_summary'] = False
+opts['use_summary'] = True
 
+# import platform
+# import sys
+# OS = platform.system()
+# if OS == 'Windows':
+#     # the git directory is syncing with my OneDrive so I don't want to copy the .mat file (~400 MB)
+#     opts['init_model_path'] = 'C:/Users/smush/OneDrive/Documents/GitHub/MDNet-py3.5/models/imagenet-vgg-m.mat'
+# elif OS == 'Linux':
+#     opts['init_model_path'] = '../models/imagenet-vgg-m.mat'
+# else:
+#     sys.exit("aa! errors!")
 opts['init_model_path'] = '../models/imagenet-vgg-m.mat'
+
 opts['model_path'] = '../models/mdnet_vot-otb_new.pth'
 opts['summary_path'] = '../models/summary'
 
