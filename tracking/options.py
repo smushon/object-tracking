@@ -13,7 +13,7 @@ else:
     print('using cpu for tracking')
 
 opts['model_path'] = '../models/mdnet_vot-otb.pth'
-
+opts['new_model_path'] = '../models/mdnet_vot-otb_new.pth'
 opts['img_size'] = 107
 opts['padding'] = 16
 

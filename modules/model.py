@@ -96,7 +96,7 @@ class MDNet(nn.Module):
         self.branches = nn.ModuleList([nn.Sequential(nn.Dropout(0.5), 
                                                      nn.Linear(512, 2)) for _ in range(K)])
 
-        print('loading trained model')
+        # print('loading trained model')
         if model_path is not None:
             if os.path.splitext(model_path)[1] == '.pth':
                 self.load_model(model_path)

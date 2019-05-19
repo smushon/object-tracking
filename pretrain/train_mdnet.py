@@ -17,13 +17,14 @@ from tensorboardX import SummaryWriter
 from FocalLoss import *
 
 
-OS = platform.system()
 # img_home = '/data1/tracking'
+usr_home = os.path.expanduser('~')
+OS = platform.system()
 if OS == 'Windows':
-    usr_home = 'C:/Users/smush/'
+    # usr_home = 'C:/Users/smush/'
     img_home = os.path.join(usr_home, 'downloads/VOT')
 elif OS == 'Linux':
-    usr_home = '~/'
+    # usr_home = '~/'
     img_home = os.path.join(usr_home, 'MDNet-data/VOT')
 else:
     sys.exit("aa! errors!")

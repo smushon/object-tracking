@@ -3,15 +3,17 @@ import numpy as np
 import pickle
 from collections import OrderedDict
 
-# seq_home = '../dataset/'
 import platform
 import sys
+
+# seq_home = '../dataset/'
+usr_home = os.path.expanduser('~')
 OS = platform.system()
 if OS == 'Windows':
-    usr_home = 'C:/Users/smush/'
+    # usr_home = 'C:/Users/smush/'
     seq_home = os.path.join(usr_home, 'downloads/VOT')
 elif OS == 'Linux':
-    usr_home = '~/'
+    # usr_home = '~/'
     seq_home = os.path.join(usr_home, 'MDNet-data/VOT')
 else:
     sys.exit("aa! errors!")

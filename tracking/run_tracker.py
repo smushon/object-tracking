@@ -27,7 +27,7 @@ from prin_gen_config import *
 from FocalLoss import *
 from tracking_utils import *
 
-
+import itertools
 #from pynvml import *
 
 np.random.seed(123)
@@ -35,19 +35,35 @@ torch.manual_seed(456)
 torch.cuda.manual_seed(789)
 
 
-# speed-ups
-load_features_from_file = False  # True
-save_features_to_file = False
-if load_features_from_file:
-    save_features_to_file = False
+###########################################
+# tracking: speed-ups
 if opts['use_gpu']:
     load_features_from_file = False
-fewer_images = False
-losses = {1:'original-focal', 2:'average-with-iou'}
-# loss_index = 1
+    avg_iters_per_sequence = 3
+    fewer_images = False
+else:  # minimalist - just see the code works
+    load_features_from_file = True
+    avg_iters_per_sequence = 1
+    fewer_images = True
+
+save_features_to_file = False
+detailed_printing = False
+
+if load_features_from_file:
+    save_features_to_file = False
+
+# benchmarking
+losses_strings = {1:'original-focal', 2:'average-with-iou'}
+loss_indices_for_tracking = [1, 2]
+models_strings = {1:'original-git', 2:'new-learnt'}
+models_paths = {1:opts['model_path'], 2:opts['new_model_path']}
+models_indices_for_tracking = [1, 2]
+perform_tracking = True
+display_benchmark_results = True
+###########################################
 
 
-def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_index=1):
+def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_index=1, model_path=opts['model_path']):
 
     # num_images include frame 0
     if fewer_images:
@@ -63,7 +79,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     result_bb[0] = target_bbox
 
     # Init model
-    model = MDNet(opts['model_path'])
+    model = MDNet(model_path)
     if opts['use_gpu']:
         model = model.cuda()
     model.set_learnable_params(opts['ft_layers'])
@@ -86,7 +102,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     update_optimizer = set_optimizer(model, opts['lr_update'])
 
     # --------
-    print('initalizing...')
+    print('    initializing...')
     tic = time.time()
 
     # SampleGenerator -- returns a list of random BBs (translate, scale) around a given BB
@@ -115,13 +131,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     image = Image.open(img_list[0]).convert('RGB')
 
     # Train bbox regressor
-    print('   training BB regressor...')
+    if detailed_printing:
+        print('       training BB regressor...')
     bbreg_examples = gen_samples(SampleGenerator('uniform', image.size, 0.3, 1.5, 1.1),
                                  target_bbox, opts['n_bbreg'], opts['overlap_bbreg'], opts['scale_bbreg'])
     bbreg_feats = forward_samples(model, image, bbreg_examples)
     bbreg = BBRegressor(image.size)  # image_size is e.g. (640, 360)
     bbreg.train(bbreg_feats, bbreg_examples, target_bbox)
-    print('   finished training BB regressor.')
+    if detailed_printing:
+        print('       finished training BB regressor.')
 
     # Draw pos/neg samples
     pos_examples = gen_samples(SampleGenerator('gaussian', image.size, 0.1, 1.2),
@@ -140,13 +158,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         neg_feats = torch.load('../features/neg_feats.pt')
     else:
         # Extract pos/neg features
-        print('   extracting features from BB samples...')
+        if detailed_printing:
+            print('       extracting features from BB samples...')
         pos_feats = forward_samples(model, image, pos_examples)
         neg_feats = forward_samples(model, image, neg_examples)
         if save_features_to_file:
             torch.save(pos_feats, '../features/pos_feats.pt')
             torch.save(neg_feats, '../features/neg_feats.pt')
-        print('   finished extracting features from BB samples.')
+        if detailed_printing:
+            print('       finished extracting features from BB samples.')
     ######################
     feat_dim = pos_feats.size(-1)
 
@@ -160,12 +180,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
 
     # Initial training
-    print('   first training pass on FC layers...')
+    if detailed_printing:
+        print('       first training pass on FC layers...')
     train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
           iou_loss=iou_loss2, pos_ious=pos_ious, neg_ious=neg_ious, loss_index=loss_index)
     # train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
     #       iou_loss=iou_loss2, pos_ious=pos_ious_tensor, neg_ious=neg_ious_tensor)
-    print('   finished first training pass on FC layers.')
+    if detailed_printing:
+        print('       finished first training pass on FC layers.')
 
     # Init sample generators
     sample_generator = SampleGenerator('gaussian', image.size, opts['trans_f'], opts['scale_f'], valid=True)
@@ -183,7 +205,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     ######################
 
     spf_total = time.time() - tic
-    print('initialization done, Time: %.3f' % (spf_total))
+    if detailed_printing:
+        print('    initialization done, Time: %.3f' % (spf_total))
 
     # Display
     savefig = savefig_dir != ''
@@ -222,6 +245,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             fig.savefig(os.path.join(savefig_dir, '0000.jpg'), dpi=dpi)
 
     # Main loop
+    print('    main loop...')
+    num_short_updates = 0
     for i in range(1, num_images):
 
         # given frame[i],
@@ -333,7 +358,9 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             pos_ious_data_tensor = torch.from_numpy(pos_iou_data)
             neg_ious_data_tensor = torch.from_numpy(neg_iou_data)
             ######################
-            print('short term update')
+            if detailed_printing:
+                print('      short term update')
+            num_short_updates += 1
             train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
                   iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
             # train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
@@ -349,7 +376,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             pos_ious_data_tensor = torch.from_numpy(pos_iou_data)
             neg_ious_data_tensor = torch.from_numpy(neg_iou_data)
             ######################
-            print('long term update')
+            if detailed_printing:
+                print('      long term update')
             train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
                   iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
             # train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
@@ -387,20 +415,23 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             if savefig:
                 fig.savefig(os.path.join(savefig_dir, '%04d.jpg' % (i)), dpi=dpi)
 
-        if gt is None:
-            print("Frame %d/%d, Score %.3f, Time %.3f" % \
-                  (i, num_images-1, target_score, spf))
-        else:
-            if i<gt.shape[0]:
-                print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
-                    (i, num_images-1, overlap_ratio(gt[i], result_bb[i])[0], target_score, spf))
+        if detailed_printing:
+            if gt is None:
+                print("      Frame %d/%d, Score %.3f, Time %.3f" % \
+                      (i, num_images-1, target_score, spf))
             else:
-                print("Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
-                    (i, num_images-1, overlap_ratio(np.array([np.nan,np.nan,np.nan,np.nan]), result_bb[i])[0], target_score, spf))
+                if i<gt.shape[0]:
+                    print("      Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
+                        (i, num_images-1, overlap_ratio(gt[i], result_bb[i])[0], target_score, spf))
+                else:
+                    print("      Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
+                        (i, num_images-1, overlap_ratio(np.array([np.nan,np.nan,np.nan,np.nan]), result_bb[i])[0], target_score, spf))
 
     #############
     # result_distanes = np.linalg.norm(result_centers - gt_centers, ord=2)
     result_distanes = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
+
+    print('    main loop finished, %d short updates' % (num_short_updates))
 
     # overlap_threshold = np.arange(0,1.01,step=0.01)
     # success_rate = np.zeros(overlap_threshold.size)
@@ -480,75 +511,98 @@ if __name__ == "__main__":
 
     # ------
 
-    # we comapare two loss functions
-    for loss_index in [1, 2]:
+    print('')
+    # tracking + online training + save results
+    if perform_tracking:
+        # for loss_index in loss_indices_for_tracking:  # we comapare several loss functions
+        tracking_started = time.time()
+        for loss_index, model_index in itertools.product(loss_indices_for_tracking, models_indices_for_tracking):
 
-        # each run is random, so we need to average before comparing
-        for avg_iter in np.arange(0,10):
+            tracking_start = time.time()
+            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index])
 
-            # Run tracker
-            result, result_bb, fps, result_distanes, result_ious = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display, loss_index=loss_index)
+            # each run is random, so we need to average before comparing
+            for avg_iter in np.arange(0, avg_iters_per_sequence):
 
-            if avg_iter == 0:
-                result_distanes_avg = result_distanes
-                result_ious_avg = result_ious
-            else:
-                result_distanes_avg = (result_distanes_avg*avg_iter + result_distanes) / (avg_iter+1)
-                result_ious_avg = (result_ious_avg * avg_iter + result_ious) / (avg_iter + 1)
+                print('  iteration %d / %d started' % (avg_iter+1, avg_iters_per_sequence))
+                iteration_start = time.time()
+
+                # Run tracker (+ online training)
+                result, result_bb, fps, result_distanes, result_ious = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index])
+
+                if avg_iter == 0:
+                    result_distanes_avg = result_distanes
+                    result_ious_avg = result_ious
+                else:
+                    result_distanes_avg = (result_distanes_avg*avg_iter + result_distanes) / (avg_iter+1)
+                    result_ious_avg = (result_ious_avg * avg_iter + result_ious) / (avg_iter + 1)
+
+                iteration_time = time.time() - iteration_start
+                print('  iteration time elapsed: %.3f' % (iteration_time))
 
 
-        # Save result
-        res = {}
-        res['res'] = result_bb.round().tolist()
-        res['type'] = 'rect'
-        res['fps'] = fps
-        res['ious'] = result_ious_avg.tolist()
-        res['distances'] = result_distanes_avg.tolist()
-        result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
-        json.dump(res, open(result_fullpath, 'w'), indent=2)
+            # Save result
+            res = {}
+            res['res'] = result_bb.round().tolist()
+            res['type'] = 'rect'
+            res['fps'] = fps
+            res['ious'] = result_ious_avg.tolist()
+            res['distances'] = result_distanes_avg.tolist()
+            result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '.json')
+            json.dump(res, open(result_fullpath, 'w'), indent=2)
+
+            tracking_time = time.time() - tracking_start
+            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index] + ' - elapsed %.3f' % (tracking_time))
+
+        tracking_time = time.time() - tracking_started
+        print('finished %d losses x %d models - elapsed %d' % (len(loss_indices_for_tracking), len(models_indices_for_tracking), tracking_time))
 
     # ------
 
-    for loss_index in [1, 2]:
-        result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
-        with open(result_fullpath, "r") as read_file:
-            res = json.load(read_file)
-        result_distanes = np.asarray(res['distances'])
-        result_ious = np.asarray(res['ious'])
+    if display_benchmark_results:
+        for loss_index, model_index in itertools.product(loss_indices_for_tracking, models_indices_for_tracking):
+        # for loss_index in loss_indices_for_tracking:
+            # result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
+            result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '.json')
+            with open(result_fullpath, "r") as read_file:
+                res = json.load(read_file)
+            result_distanes = np.asarray(res['distances'])
+            result_ious = np.asarray(res['ious'])
 
-        overlap_threshold = np.arange(0,1.01,step=0.01)
-        success_rate = np.zeros(overlap_threshold.size)
-        for i in range(overlap_threshold.shape[0]):
-            success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+            overlap_threshold = np.arange(0,1.01,step=0.01)
+            success_rate = np.zeros(overlap_threshold.size)
+            for i in range(overlap_threshold.shape[0]):
+                success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
 
-        location_error_threshold = np.arange(0,50.5,step=0.5)
-        precision = np.zeros(location_error_threshold.size)
-        for i in range(location_error_threshold.shape[0]):
-            precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
+            location_error_threshold = np.arange(0,50.5,step=0.5)
+            precision = np.zeros(location_error_threshold.size)
+            for i in range(location_error_threshold.shape[0]):
+                precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
 
-        if display:
             plt.figure(2)  # new figure
-            plt.plot(result_distanes, label=losses[loss_index])
+            # plt.plot(result_distanes, label=losses_strings[loss_index])
+            plt.plot(result_distanes, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
             plt.ylabel('distances')
             plt.xlabel('image number')
             plt.legend()
 
             plt.figure(3)  # new figure
-            plt.plot(result_ious, label=losses[loss_index])
+            plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
             plt.ylabel('ious')
             plt.xlabel('image number')
             plt.legend()
 
             plt.figure(4)  # new figure
-            plt.plot(success_rate, label=losses[loss_index])
+            plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
             plt.ylabel('success rate')
             plt.xlabel('overlap threshold')
             plt.legend()
 
             plt.figure(5)  # new figure
-            plt.plot(precision, label=losses[loss_index])
+            plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
             plt.ylabel('precision')
             plt.xlabel('location error threshold')
             plt.legend()
 
-    plt.show()
+
+        plt.show()
