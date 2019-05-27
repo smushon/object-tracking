@@ -67,6 +67,35 @@ if load_features_from_file:
 
 init_after_loss = False  # True - VOT metrics, False - OTB metrics
 ###########################################
+###########################################
+import cv2
+OPENCV_OBJECT_TRACKERS = {"csrt": cv2.TrackerCSRT_create,
+                          "kcf": cv2.TrackerKCF_create,
+                          "boosting": cv2.TrackerBoosting_create,
+                          "mil": cv2.TrackerMIL_create,
+                          "tld": cv2.TrackerTLD_create,
+                          "medianflow": cv2.TrackerMedianFlow_create,
+                          "mosse": cv2.TrackerMOSSE_create}
+OPENCV_TRACKERS_COLORS = {"csrt": 'yellow',
+                          "kcf": 'blue',
+                          "boosting": 'violet',
+                          "mil": 'magenta',
+                          "tld": 'black',
+                          "medianflow": 'orange',
+                          "mosse": 'cyan'}
+# color from https://matplotlib.org/examples/color/named_colors.html
+tracker_strings_selected = ['kcf', 'medianflow', 'mil']
+
+# # trackers = []
+# trackers_dict = {}
+# for tracker_String in tracker_strings_selected:
+#     # trackers.append(OPENCV_OBJECT_TRACKERS[tracker_String]())
+#     trackers_dict.update( {tracker_String : OPENCV_OBJECT_TRACKERS[tracker_String]()})
+
+bb_fc_model_path = None  # if we learned the weights during offline learning
+use_opencv = True
+update_non_refined_on_fail = True  # True - will use opencv tracker output, False - will use last successful refinement
+###########################################
 
 
 def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_index=1, model_path=opts['model_path']):
@@ -136,6 +165,31 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     # Load first image
     image = Image.open(img_list[0]).convert('RGB')
 
+    ######################
+    if use_opencv:
+        # init opencv trackers and refined_bb
+        # bbox = (current_frame_x1, current_frame_y1, current_frame_width, current_frame_height)
+
+        trackers_dict = {}
+        for tracker_String in tracker_strings_selected:
+            trackers_dict.update({tracker_String: OPENCV_OBJECT_TRACKERS[tracker_String]()})
+        refined_bb_dict = {}
+        for (string, tracker) in trackers_dict.items():
+            refined_bb_dict.update({string: target_bbox})
+            # tracker.clear()
+            if not tracker.init(np.array(image), tuple(target_bbox)):
+                raise Exception('error init tracker: ', string)
+            else:
+                print('      success init tracker: ', string)
+
+        # init bb_fc_model
+        bb_fc_model = FCRegressor(bb_fc_model_path)
+        if opts['use_gpu']:
+            bb_fc_model = bb_fc_model.cuda()
+        bb_fc_model.eval()
+    ######################
+
+
     # Train bbox regressor
     if detailed_printing:
         print('       training BB regressor...')
@@ -183,7 +237,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     pos_ious_tensor = torch.from_numpy(pos_ious)
     neg_ious_tensor = torch.from_numpy(neg_ious)
     ######################
-
 
     # Initial training
     if detailed_printing:
@@ -244,6 +297,19 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                              linewidth=3, edgecolor="#ff0000", zorder=1, fill=False)
         ax.add_patch(rect)
 
+        ######################
+        if use_opencv:
+            if gt is None:
+                raise Exception('cannot init opencv without gt[0]')
+            else:
+                refined_patch_dict = {}
+                for tracker_String in tracker_strings_selected:
+                    refined_patch_dict.update({tracker_String: plt.Rectangle(tuple(gt[0, :2]), gt[0, 2], gt[0, 3],
+                                                                             linewidth=3, edgecolor=OPENCV_TRACKERS_COLORS[tracker_String], zorder=1,
+                                                                             fill=False)})
+                    ax.add_patch(refined_patch_dict[tracker_String])
+        ######################
+
         if display:
             plt.pause(.01)
             plt.draw()
@@ -295,6 +361,42 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         target_score = top_scores.mean()
         target_bbox = samples[top_idx].mean(axis=0)
 
+        ###############################
+        if use_opencv:
+            for (cv_string, cv_tracker) in trackers_dict.items():
+                cv_success, cv_BB = cv_tracker.update(np.array(image))
+                if cv_success:
+                    cv_feats_BB = forward_samples(model, image, np.array([cv_BB]))
+                    cv_feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
+
+                    cv_BB_std = np.array(cv_BB)
+                    img_size_std = opts['img_size']
+                    cv_BB_std[0] = cv_BB[0] * img_size_std / image.size[0]
+                    cv_BB_std[2] = cv_BB[2] * img_size_std / image.size[0]
+                    cv_BB_std[1] = cv_BB[1] * img_size_std / image.size[1]
+                    cv_BB_std[3] = cv_BB[3] * img_size_std / image.size[1]
+
+                    bb_fc_input = torch.cat((cv_feats_BB, cv_feats_full_frame, torch.Tensor(np.array([cv_BB_std]))), dim=1)
+                    cv_BB_refined_std = bb_fc_model(bb_fc_input)
+
+                    # if cv_BB_refined_std[2] < 2 or cv_BB_refined_std[3] < 2:  # BB too small
+                    #     cv_refine_success = False
+                    #     print('      refinement for opencv model ', cv_string, ' failed at frame ', i, ' after init')
+                    #     if update_non_refined_on_fail:
+                    #         refined_bb_dict.update({tracker_String: np.array(cv_BB)})
+                    # else:
+                    cv_refine_success = True
+                    cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
+                    cv_BB_refined = cv_BB_refined_std
+                    cv_BB_refined[0] = cv_BB_refined_std[0] * image.size[0] / img_size_std
+                    cv_BB_refined[2] = cv_BB_refined_std[2] * image.size[0] / img_size_std
+                    cv_BB_refined[1] = cv_BB_refined_std[1] * image.size[1] / img_size_std
+                    cv_BB_refined[3] = cv_BB_refined_std[3] * image.size[1] / img_size_std
+                    refined_bb_dict.update({tracker_String: cv_BB_refined})
+                else:
+                    print('opencv model ', cv_string, ' failed at frame ', i, ' after init')
+        ###############################
+
         success = target_score > opts['success_thr']
 
         # Expand search area at failure
@@ -321,6 +423,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         result[i] = target_bbox
         result_bb[i] = bbreg_bbox
 
+        ###########################################
+        # identify tracking failure and abort when in VOT mode
         IoU = overlap_ratio(result_bb[i], gt[i])[0]
         if (IoU == 0) and init_after_loss:
             print('    * lost track in frame %d since init*' % (i))
@@ -346,6 +450,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             plt.draw()
 
             return result[:i], result_bb[:i], num_images_tracked, spf_total, result_distances, result_ious[:i], True
+        ########################################
 
         # Data collect
         if success:
@@ -441,6 +546,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             rect.set_xy(result_bb[i, :2])
             rect.set_width(result_bb[i, 2])
             rect.set_height(result_bb[i, 3])
+
+            for tracker_String in tracker_strings_selected:
+                refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
+                refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
+                refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
+                # draw rectangle based on refined_bb_dict[tracker_String]
 
             if display:
                 plt.pause(.01)

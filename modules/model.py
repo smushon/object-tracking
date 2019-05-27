@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch
 
+from options import *
 
 def append_params(params, module, prefix):
     for child in module.children():
@@ -45,6 +46,83 @@ class LRN(nn.Module):
         return x
 
 
+#####################################
+class FlattenLayer(torch.nn.Module):
+    def __init__(self, *args):
+        super(FlattenLayer, self).__init__()
+
+    def forward(self, x):
+        x = x.view(x.size()[0], -1)
+        return x
+
+
+def init_weights(m):
+    if type(m) == nn.Linear:
+        # nn.init.kaiming_normal_(m.model.fc1.weight)
+        # nn.init.constant_(m.model.fc1.bias, 0.)
+
+        # y = m.in_features
+        # m.weight.data.normal_(0.0, 1 / np.sqrt(y))
+        # m.bias.data.fill_(0)
+
+        torch.nn.init.xavier_uniform_(m.weight)
+        m.bias.data.fill_(0.01)
+
+
+class FCRegressor(torch.nn.Module):
+    # def __init__(self, *args):
+    def __init__(self, model_path=None):
+        super(FCRegressor, self).__init__()
+
+        input_layer_size = 2 * 4608 + 4  # images features, crop features, BB coordinates
+        hidden_layer_size = 512
+
+        self.layers = nn.Sequential(OrderedDict([
+            ('flatten',  FlattenLayer()),
+            ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+                                  nn.ReLU())),
+            ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, 4)))
+        ]))
+
+        if model_path is None:
+            self.layers.apply(init_weights)
+            # nn.init.kaiming_normal_(self.model.fc1.weight)
+            # nn.init.constant_(self.model.fc1.bias, 0.)
+            # nn.init.kaiming_normal_(self.model.fc2.weight)
+            # nn.init.constant_(self.model.fc2.bias, 0.)
+        else:
+            if os.path.splitext(model_path)[1] == '.pth':
+                states = torch.load(model_path)
+                self.layers.load_state_dict(states['layers'])
+            else:
+                raise RuntimeError("unused model format: %s" % (model_path))
+
+    def forward(self, x):
+        for name, module in self.layers.named_children():
+            x = module(x)
+        # x = (x1, y1, width, height)
+
+        # crop
+        x = x[0]
+        x[0] = min(opts['img_size']-1, x[0])
+        x[0] = max(0, x[0])
+        x[1] = min(opts['img_size']-1, x[1])
+        x[1] = max(0, x[1])
+
+        x[2] = max(0, x[2])
+        x[3] = max(0, x[3])
+
+        if x[0] + x[2] > opts['img_size']:
+            x[2] = opts['img_size'] - x[0]
+        if x[1] + x[3] > opts['img_size']:
+            x[3] = opts['img_size'] - x[1]
+
+        return x
+
+#####################################
+
+
+#####################################
 class IoUPred(nn.Module):
     def __init__(self):
         super().__init__()
@@ -69,6 +147,7 @@ class IoUPredModule(nn.Module):
     def forward(self, x):
         scores = self.fc(self.do(x))
         return scores
+#####################################
 
 
 class MDNet(nn.Module):
