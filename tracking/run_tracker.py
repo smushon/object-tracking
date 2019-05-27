@@ -28,6 +28,7 @@ from FocalLoss import *
 from tracking_utils import *
 
 import itertools
+from cycler import cycler
 #from pynvml import *
 
 np.random.seed(123)
@@ -36,15 +37,26 @@ torch.cuda.manual_seed(789)
 
 
 ###########################################
+# benchmarking
+losses_strings = {1:'original-focal', 2:'average-with-iou'}
+models_strings = {1:'original-git', 2:'new-learnt'}
+models_paths = {1:opts['model_path'], 2:opts['new_model_path']}
+perform_tracking = True
+display_benchmark_results = True
+
 # tracking: speed-ups
 if opts['use_gpu']:
     load_features_from_file = False
-    avg_iters_per_sequence = 3
+    avg_iters_per_sequence = 3 # should be 15 per the VOT challenge
     fewer_images = False
+    loss_indices_for_tracking = [1, 2]
+    models_indices_for_tracking = [1, 2]
 else:  # minimalist - just see the code works
     load_features_from_file = True
     avg_iters_per_sequence = 1
     fewer_images = True
+    loss_indices_for_tracking = [1]
+    models_indices_for_tracking = [1, 2]
 
 save_features_to_file = False
 detailed_printing = False
@@ -52,14 +64,8 @@ detailed_printing = False
 if load_features_from_file:
     save_features_to_file = False
 
-# benchmarking
-losses_strings = {1:'original-focal', 2:'average-with-iou'}
-loss_indices_for_tracking = [1, 2]
-models_strings = {1:'original-git', 2:'new-learnt'}
-models_paths = {1:opts['model_path'], 2:opts['new_model_path']}
-models_indices_for_tracking = [1, 2]
-perform_tracking = True
-display_benchmark_results = True
+
+init_after_loss = False  # True - VOT metrics, False - OTB metrics
 ###########################################
 
 
@@ -247,6 +253,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     # Main loop
     print('    main loop...')
     num_short_updates = 0
+    spf_total = 0  # I don't want to take into account initialization
     for i in range(1, num_images):
 
         # given frame[i],
@@ -313,6 +320,32 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         # Save result
         result[i] = target_bbox
         result_bb[i] = bbreg_bbox
+
+        IoU = overlap_ratio(result_bb[i], gt[i])[0]
+        if (IoU == 0) and init_after_loss:
+            print('    * lost track in frame %d since init*' % (i))
+            result_distances = scipy.spatial.distance.cdist(result_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
+            num_images_tracked = i - 1  # we don't count frame 0 and current frame (lost track)
+
+            im.set_data(image)
+            if gt is not None:
+                if i < gt.shape[0]:
+                    gt_rect.set_xy(gt[i, :2])
+                    gt_rect.set_width(gt[i, 2])
+                    gt_rect.set_height(gt[i, 3])
+                else:
+                    gt_rect.set_xy(np.array([np.nan, np.nan]))
+                    gt_rect.set_width(np.nan)
+                    gt_rect.set_height(np.nan)
+
+            rect.set_xy(result_bb[i, :2])
+            rect.set_width(result_bb[i, 2])
+            rect.set_height(result_bb[i, 3])
+
+            plt.pause(.01)
+            plt.draw()
+
+            return result[:i], result_bb[:i], num_images_tracked, spf_total, result_distances, result_ious[:i], True
 
         # Data collect
         if success:
@@ -427,60 +460,13 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     print("      Frame %d/%d, Overlap %.3f, Score %.3f, Time %.3f" % \
                         (i, num_images-1, overlap_ratio(np.array([np.nan,np.nan,np.nan,np.nan]), result_bb[i])[0], target_score, spf))
 
-    #############
-    # result_distanes = np.linalg.norm(result_centers - gt_centers, ord=2)
-    result_distanes = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
-
+    # result_distances = np.linalg.norm(result_centers - gt_centers, ord=2)
+    result_distances = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
+    # fps = num_images / spf_total
+    num_images_tracked = num_images-1  # I don't want to count initialization frame (i.e. frame 0)
     print('    main loop finished, %d short updates' % (num_short_updates))
 
-    # overlap_threshold = np.arange(0,1.01,step=0.01)
-    # success_rate = np.zeros(overlap_threshold.size)
-    # for i in range(overlap_threshold.shape[0]):
-    #     success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
-    #
-    # location_error_threshold = np.arange(0,50.5,step=0.5)
-    # precision = np.zeros(location_error_threshold.size)
-    # for i in range(location_error_threshold.shape[0]):
-    #     precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
-    #
-    # if display:
-    #     plt.figure(2)  # new figure
-    #     # plt.pause(.01)
-    #     plt.plot(result_distanes)
-    #     # print('distances ', result_distanes)
-    #     plt.ylabel('distances')
-    #     plt.xlabel('image number')
-    #     # plt.show(block=False)
-    #
-    #     plt.figure(3)  # new figure
-    #     # plt.pause(.01)
-    #     plt.plot(result_ious)
-    #     # print('ious ', result_ious)
-    #     plt.ylabel('ious')
-    #     plt.xlabel('image number')
-    #     # plt.show(block=False)
-    #
-    #     plt.figure(4)  # new figure
-    #     # plt.pause(.01)
-    #     plt.plot(success_rate)
-    #     plt.ylabel('success rate')
-    #     plt.xlabel('overlap threshold')
-    #     # plt.show(block=False)
-    #
-    #     plt.figure(5)  # new figure
-    #     # plt.pause(.01)
-    #     plt.plot(precision)
-    #     plt.ylabel('precision')
-    #     plt.xlabel('location error threshold')
-    #     # plt.show(block=False)
-    #
-    #     # plt.pause(.01)
-    #     # plt.show(block=False)
-    #     # plt.show()
-    #############
-
-    fps = num_images / spf_total
-    return result, result_bb, fps, result_distanes, result_ious
+    return result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, False
 
 
 if __name__ == "__main__":
@@ -511,7 +497,6 @@ if __name__ == "__main__":
 
     # ------
 
-    print('')
     # tracking + online training + save results
     if perform_tracking:
         # for loss_index in loss_indices_for_tracking:  # we comapare several loss functions
@@ -519,6 +504,7 @@ if __name__ == "__main__":
         for loss_index, model_index in itertools.product(loss_indices_for_tracking, models_indices_for_tracking):
 
             tracking_start = time.time()
+            print('')
             print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index])
 
             # each run is random, so we need to average before comparing
@@ -527,15 +513,55 @@ if __name__ == "__main__":
                 print('  iteration %d / %d started' % (avg_iter+1, avg_iters_per_sequence))
                 iteration_start = time.time()
 
-                # Run tracker (+ online training)
-                result, result_bb, fps, result_distanes, result_ious = run_mdnet(img_list, init_bbox, gt=gt, savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index])
+                if init_after_loss:
+                    init_frame_index = 0
+                    while init_frame_index < len(img_list) - 1:  # we want at least one frame for tracking after init
+                        result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(img_list[init_frame_index:], gt[init_frame_index], gt=gt[init_frame_index:], savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index])
+                        if init_frame_index == 0:
+                            result_ious_tot = result_ious
+                            num_images_tracked_tot = num_images_tracked
+                            spf_total_tot = spf_total
 
-                if avg_iter == 0:
-                    result_distanes_avg = result_distanes
-                    result_ious_avg = result_ious
+                            # init_frame_index does not include init frame nor frame where tracking was lost
+                            if lost_track:
+                                lost_track_tot = 1
+                                init_frame_index = num_images_tracked + 1 + 5
+                            else:
+                                lost_track_tot = 0
+                                init_frame_index = len(img_list)
+                        else:
+                            result_ious_tot = np.concatenate((result_ious_tot, result_ious))
+                            num_images_tracked_tot += num_images_tracked
+                            spf_total_tot += spf_total
+
+                            if lost_track:
+                                lost_track_tot += 1
+                                init_frame_index += num_images_tracked + 1 + 5
+                            else:
+                                init_frame_index = len(img_list)
+                    accuracy = np.mean(result_ious_tot)
+                    fps = num_images_tracked_tot / spf_total_tot
                 else:
-                    result_distanes_avg = (result_distanes_avg*avg_iter + result_distanes) / (avg_iter+1)
-                    result_ious_avg = (result_ious_avg * avg_iter + result_ious) / (avg_iter + 1)
+                    result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(
+                        img_list, gt[0], gt=gt,
+                        savefig_dir=savefig_dir, display=display, loss_index=loss_index,
+                        model_path=models_paths[model_index])
+                    fps = num_images_tracked / spf_total
+
+                if not init_after_loss:
+                    if avg_iter == 0:
+                        result_distances_avg = result_distances
+                        result_ious_avg = result_ious
+                    else:
+                        result_distances_avg = (result_distances_avg*avg_iter + result_distances) / (avg_iter+1)
+                        result_ious_avg = (result_ious_avg * avg_iter + result_ious) / (avg_iter + 1)
+                else:
+                    if avg_iter == 0:
+                        failures_per_seq_avg = lost_track_tot
+                        accuracy_avg = accuracy
+                    else:
+                        failures_per_seq_avg = (failures_per_seq_avg * avg_iter + lost_track_tot) / (avg_iter + 1)
+                        accuracy_avg = (accuracy_avg * avg_iter + accuracy) / (avg_iter + 1)
 
                 iteration_time = time.time() - iteration_start
                 print('  iteration time elapsed: %.3f' % (iteration_time))
@@ -543,11 +569,15 @@ if __name__ == "__main__":
 
             # Save result
             res = {}
-            res['res'] = result_bb.round().tolist()
             res['type'] = 'rect'
             res['fps'] = fps
-            res['ious'] = result_ious_avg.tolist()
-            res['distances'] = result_distanes_avg.tolist()
+            if not init_after_loss:
+                res['res'] = result_bb.round().tolist()  # what to save when we average ????
+                res['ious'] = result_ious_avg.tolist()
+                res['distances'] = result_distances_avg.tolist()
+            else:
+                res['fails_per_seq'] = failures_per_seq_avg
+                res['accuracy'] = accuracy_avg
             result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '.json')
             json.dump(res, open(result_fullpath, 'w'), indent=2)
 
@@ -560,49 +590,63 @@ if __name__ == "__main__":
     # ------
 
     if display_benchmark_results:
+
+
         for loss_index, model_index in itertools.product(loss_indices_for_tracking, models_indices_for_tracking):
         # for loss_index in loss_indices_for_tracking:
             # result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
             result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '.json')
             with open(result_fullpath, "r") as read_file:
                 res = json.load(read_file)
-            result_distanes = np.asarray(res['distances'])
-            result_ious = np.asarray(res['ious'])
 
-            overlap_threshold = np.arange(0,1.01,step=0.01)
-            success_rate = np.zeros(overlap_threshold.size)
-            for i in range(overlap_threshold.shape[0]):
-                success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+            if not init_after_loss:
+                result_distances = np.asarray(res['distances'])
+                result_ious = np.asarray(res['ious'])
 
-            location_error_threshold = np.arange(0,50.5,step=0.5)
-            precision = np.zeros(location_error_threshold.size)
-            for i in range(location_error_threshold.shape[0]):
-                precision[i] = np.sum(result_distanes < location_error_threshold[i]) / result_distanes.shape[0]
+                overlap_threshold = np.arange(0, 1.01, step=0.01)
+                success_rate = np.zeros(overlap_threshold.size)
+                for i in range(overlap_threshold.shape[0]):
+                    success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+                # AUC = accuracy = sum(success_rate)
 
-            plt.figure(2)  # new figure
-            # plt.plot(result_distanes, label=losses_strings[loss_index])
-            plt.plot(result_distanes, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-            plt.ylabel('distances')
-            plt.xlabel('image number')
-            plt.legend()
+                location_error_threshold = np.arange(0, 50.5, step=0.5)
+                precision = np.zeros(location_error_threshold.size)
+                for i in range(location_error_threshold.shape[0]):
+                    precision[i] = np.sum(result_distances < location_error_threshold[i]) / result_distances.shape[0]
 
-            plt.figure(3)  # new figure
-            plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-            plt.ylabel('ious')
-            plt.xlabel('image number')
-            plt.legend()
+                plt.figure(2)
+                # plt.plot(result_distances, label=losses_strings[loss_index])
+                plt.plot(result_distances, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                plt.ylabel('distances')
+                plt.xlabel('image number')
+                plt.legend()
 
-            plt.figure(4)  # new figure
-            plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-            plt.ylabel('success rate')
-            plt.xlabel('overlap threshold')
-            plt.legend()
+                plt.figure(3)
+                plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                plt.ylabel('ious')
+                plt.xlabel('image number')
+                plt.legend()
 
-            plt.figure(5)  # new figure
-            plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-            plt.ylabel('precision')
-            plt.xlabel('location error threshold')
-            plt.legend()
+                plt.figure(4)
+                plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                plt.ylabel('success rate')
+                plt.xlabel('overlap threshold')
+                plt.legend()
+
+                plt.figure(5)
+                plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                plt.ylabel('precision')
+                plt.xlabel('location error threshold')
+                plt.legend()
+
+            else:
+                plt.figure(6)
+                plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
+                                       cycler('marker',["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
+                plt.plot([res['fails_per_seq']], [res['accuracy']], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                plt.ylabel('accuracy')
+                plt.xlabel('failures per sequence')
+                plt.legend()
 
 
         plt.show()
