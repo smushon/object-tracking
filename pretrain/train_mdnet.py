@@ -45,8 +45,105 @@ def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['moment
     return optimizer
 
 
+def train_fcnet():
+    with open(data_path, 'rb') as fp:
+        data = pickle.load(fp)
+    K = len(data)  # K is the number of sequences (58)
+    dataset = [None] * K
+
+    seqnames = []
+    for k, seqname in enumerate(data):
+        img_list = data[seqname]['images']
+        gt = data[seqname]['gt']  # gt is a ndarray of rectangles
+        img_dir = os.path.join(img_home, seqname)
+        dataset[k] = RegionDataset(img_dir, img_list, gt, opts)  ############# ????????????????????????
+
+        seqnames.append(seqname)
+
+    use_gpu = opts['use_gpu']
+
+    # Init model #
+    bb_fc_model_path = None  ##################### TBD ##########################
+    bb_fc_model = FCRegressor(bb_fc_model_path)
+    if use_gpu:
+        bb_fc_model = bb_fc_model.cuda()
+
+    best_prec = 0
+    for i in range(opts['n_cycles']):
+        print('')
+        print("==== Start Cycle %d ====" % (i))
+        k_list = np.random.permutation(K)  # reorder training sequences each epoch
+        curr_epoch_prec_per_seq = np.zeros(K)
+        for j, k in enumerate(k_list):
+            tic = time.time()
+
+            pos_regions, neg_regions = dataset[k].next()
+            pos_target = np.ones(pos_regions.shape[0], dtype=int)
+
+            pos_regions = Variable(pos_regions)
+            if use_gpu:
+                pos_regions = pos_regions.cuda()
+
+            #################################
+            cv_feats_BB = forward_samples(bb_fc_model, image, np.array([cv_BB]))
+            cv_feats_full_frame = forward_samples(bb_fc_model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
+
+            cv_BB_std = np.array(cv_BB)
+            img_size_std = opts['img_size']
+            cv_BB_std[0] = cv_BB[0] * img_size_std / image.size[0]
+            cv_BB_std[2] = cv_BB[2] * img_size_std / image.size[0]
+            cv_BB_std[1] = cv_BB[1] * img_size_std / image.size[1]
+            cv_BB_std[3] = cv_BB[3] * img_size_std / image.size[1]
+
+            bb_fc_input = torch.cat((cv_feats_BB, cv_feats_full_frame, torch.Tensor(np.array([cv_BB_std]))), dim=1)
+
+            with torch.no_grad():
+                bb_fc_input = bb_fc_input.to(device=device)
+                cv_BB_refined_std = bb_fc_model(bb_fc_input)
+
+            bb_fc_input = bb_fc_input.to(device='cpu')  # is this needed ??????????????????????
+            cv_BB_refined_std = cv_BB_refined_std.to(device='cpu')  # is this needed ??????????????????????
+            #################################
+
+            pos_score = bb_fc_model(pos_regions, k)
+
+            pos_target = torch.from_numpy(pos_target)
+            pos_target = Variable(pos_target)
+            if use_gpu:
+                pos_target = pos_target.cuda()
+
+            loss = posLoss(pos_score, pos_target)
+
+            model.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])  ######## ????????????????
+            optimizer.step()
+            curr_epoch_prec_per_seq[k] = evaluator(pos_score)
+
+            toc = time.time() - tic
+            if loss.dim() == 0:
+                print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
+                      (i, j, K, k, loss.data, curr_epoch_prec_per_seq[k], toc))
+            else:
+                print("Cycle %d, [%d/%d] (seq %2d), Loss %.3f, Prec %.3f, Time %.3f" % \
+                      (i, j, K, k, loss.data[0], curr_epoch_prec_per_seq[k], toc))
+
+        cur_prec = curr_epoch_prec_per_seq.mean()
+        print("Mean Precision: %.3f" % (cur_prec))
+
+        if cur_prec > best_prec:
+            best_prec = cur_prec
+            if use_gpu:
+                model = model.cpu()
+            states = {'FCRegressor_layers': model.layers.state_dict()}
+            print("Save model to %s" % bb_fc_model_path)
+            torch.save(states, bb_fc_model_path)
+            if use_gpu:
+                model = model.cuda()
+
+
 def train_mdnet():
-    ## Init dataset ##
+    # Init dataset #
     # with open(data_path, 'rb') as fp:
     #     data = pickle.load(fp)
     # to unpickle .pkl in python3 which is pickles in python2, should do like this
@@ -65,10 +162,10 @@ def train_mdnet():
     #            [634.41, 399.8 , 410.39, 231.23]
     #        ])
     # }
-    list = []
-    for k, seqname in enumerate(data):
-        list.append(seqname)
-        # print(seqname)
+    # list = []
+    # for k, seqname in enumerate(data):
+    #     list.append(seqname)
+    #     print(seqname)
     ###############################################
 
     K = len(data)  # K is the number of sequences (58)
@@ -89,13 +186,13 @@ def train_mdnet():
         summary = SummaryWriter(comment='CrossEntropyLoss')
         summary_different_model = SummaryWriter('runs/comparsion_between_model/CrossEntropyLoss_MDNet')
 
-    ## Init model ##
+    # Init model #
     model = MDNet(opts['init_model_path'], K)
     if use_gpu:
         model = model.cuda()
     model.set_learnable_params(opts['ft_layers'])
 
-    ## Init criterion and optimizer ##
+    # Init criterion and optimizer #
     # criterion = BinaryLoss()
     # posLoss = FocalLoss(class_num=2,size_average=False,alpha=torch.ones(2,1)*0.25)
     # negLoss = FocalLoss(class_num=2, size_average=False,alpha=torch.ones(2,1)*0.25)
@@ -203,5 +300,12 @@ def train_mdnet():
         summary_different_model.close()
 
 
+train_mdnet = False
+train_fcnet = True
 if __name__ == "__main__":
-    train_mdnet()
+
+    if train_mdnet():
+        train_mdnet()
+
+    if train_fcnet:
+        train_fcnet()

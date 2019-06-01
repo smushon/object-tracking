@@ -36,6 +36,28 @@ torch.manual_seed(456)
 torch.cuda.manual_seed(789)
 
 
+
+###########################################
+import platform
+import statistics
+# seq_home = '../dataset/'
+usr_home = os.path.expanduser('~')
+OS = platform.system()
+if OS == 'Windows':
+    # usr_home = 'C:/Users/smush/'
+    seq_home = os.path.join(usr_home, 'downloads/OTB')
+elif OS == 'Linux':
+    # usr_home = '~/'
+    seq_home = os.path.join(usr_home, 'MDNet-data/OTB')
+else:
+    sys.exit("aa! errors!")
+
+my_sequence_list = ['DragonBaby', 'Bird1'] #, 'Car4', 'BlurFace']
+show_average_over_sequences = True
+show_per_sequence = True
+###########################################
+
+
 ###########################################
 # benchmarking
 losses_strings = {1:'original-focal', 2:'average-with-iou'}
@@ -47,7 +69,7 @@ display_benchmark_results = True
 # tracking: speed-ups
 if opts['use_gpu']:
     load_features_from_file = False
-    avg_iters_per_sequence = 3 # should be 15 per the VOT challenge
+    avg_iters_per_sequence = 3  # should be 15 per the VOT challenge
     fewer_images = False
     loss_indices_for_tracking = [1, 2]
     models_indices_for_tracking = [1, 2]
@@ -65,7 +87,9 @@ if load_features_from_file:
     save_features_to_file = False
 
 
-init_after_loss = False  # True - VOT metrics, False - OTB metrics
+init_after_loss = True  # True - VOT metrics, False - OTB metrics
+display_VOT_benchmark = True
+display_OTB_benchmark = True
 ###########################################
 ###########################################
 import cv2
@@ -84,7 +108,7 @@ OPENCV_TRACKERS_COLORS = {"csrt": 'yellow',
                           "medianflow": 'orange',
                           "mosse": 'cyan'}
 # color from https://matplotlib.org/examples/color/named_colors.html
-tracker_strings_selected = ['kcf', 'medianflow', 'mil']
+tracker_strings_selected = ['kcf'] #, 'medianflow', 'mil']
 
 # # trackers = []
 # trackers_dict = {}
@@ -94,15 +118,24 @@ tracker_strings_selected = ['kcf', 'medianflow', 'mil']
 
 bb_fc_model_path = None  # if we learned the weights during offline learning
 use_opencv = True
+perform_refinement = False  # True - will use FCRegressor to refine BB, False - will use opencv tracker output as-is
 update_non_refined_on_fail = True  # True - will use opencv tracker output, False - will use last successful refinement
 ###########################################
 
 
-def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_index=1, model_path=opts['model_path']):
+##################
+device0 = torch.device('cuda:0')
+device = device0 if torch.cuda.is_available() and opts['use_gpu'] else 'cpu'
+# print('using device:', device)
+
+##################
+
+
+def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_index=1, model_path=opts['model_path'], seq_name=None):
 
     # num_images include frame 0
     if fewer_images:
-        num_images = 3
+        num_images = 4
     else:
         num_images = len(img_list)
 
@@ -179,14 +212,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             # tracker.clear()
             if not tracker.init(np.array(image), tuple(target_bbox)):
                 raise Exception('error init tracker: ', string)
-            else:
-                print('      success init tracker: ', string)
+            # else:
+            #     print('      success init tracker: ', string)
 
         # init bb_fc_model
-        bb_fc_model = FCRegressor(bb_fc_model_path)
-        if opts['use_gpu']:
-            bb_fc_model = bb_fc_model.cuda()
-        bb_fc_model.eval()
+        if perform_refinement:
+            bb_fc_model = FCRegressor(bb_fc_model_path)
+            if opts['use_gpu']:
+                bb_fc_model = bb_fc_model.cuda()
+            bb_fc_model.eval()
     ######################
 
 
@@ -213,18 +247,22 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     neg_examples = np.random.permutation(neg_examples)
 
     ######################
+    fw_samples = False
     if load_features_from_file:
-        pos_feats = torch.load('../features/pos_feats.pt')
-        neg_feats = torch.load('../features/neg_feats.pt')
-    else:
+        if os.path.isfile('../features/' + seq_name + '_pos_feats.pt') and os.path.isfile('../features/' + seq_name + '_neg_feats.pt'):
+            pos_feats = torch.load('../features/' + seq_name + '_pos_feats.pt')
+            neg_feats = torch.load('../features/' + seq_name + '_neg_feats.pt')
+        else:
+            fw_samples = True
+    if fw_samples or (not load_features_from_file):
         # Extract pos/neg features
         if detailed_printing:
             print('       extracting features from BB samples...')
         pos_feats = forward_samples(model, image, pos_examples)
         neg_feats = forward_samples(model, image, neg_examples)
-        if save_features_to_file:
-            torch.save(pos_feats, '../features/pos_feats.pt')
-            torch.save(neg_feats, '../features/neg_feats.pt')
+        if save_features_to_file or fw_samples:
+            torch.save(pos_feats, '../features/' + seq_name + '_pos_feats.pt')
+            torch.save(neg_feats, '../features/' + seq_name + '_neg_feats.pt')
         if detailed_printing:
             print('       finished extracting features from BB samples.')
     ######################
@@ -366,33 +404,42 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             for (cv_string, cv_tracker) in trackers_dict.items():
                 cv_success, cv_BB = cv_tracker.update(np.array(image))
                 if cv_success:
-                    cv_feats_BB = forward_samples(model, image, np.array([cv_BB]))
-                    cv_feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
+                    if perform_refinement:
+                        cv_feats_BB = forward_samples(model, image, np.array([cv_BB]))
+                        cv_feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
 
-                    cv_BB_std = np.array(cv_BB)
-                    img_size_std = opts['img_size']
-                    cv_BB_std[0] = cv_BB[0] * img_size_std / image.size[0]
-                    cv_BB_std[2] = cv_BB[2] * img_size_std / image.size[0]
-                    cv_BB_std[1] = cv_BB[1] * img_size_std / image.size[1]
-                    cv_BB_std[3] = cv_BB[3] * img_size_std / image.size[1]
+                        cv_BB_std = np.array(cv_BB)
+                        img_size_std = opts['img_size']
+                        cv_BB_std[0] = cv_BB[0] * img_size_std / image.size[0]
+                        cv_BB_std[2] = cv_BB[2] * img_size_std / image.size[0]
+                        cv_BB_std[1] = cv_BB[1] * img_size_std / image.size[1]
+                        cv_BB_std[3] = cv_BB[3] * img_size_std / image.size[1]
 
-                    bb_fc_input = torch.cat((cv_feats_BB, cv_feats_full_frame, torch.Tensor(np.array([cv_BB_std]))), dim=1)
-                    cv_BB_refined_std = bb_fc_model(bb_fc_input)
+                        bb_fc_input = torch.cat((cv_feats_BB, cv_feats_full_frame, torch.Tensor(np.array([cv_BB_std]))), dim=1)
 
-                    # if cv_BB_refined_std[2] < 2 or cv_BB_refined_std[3] < 2:  # BB too small
-                    #     cv_refine_success = False
-                    #     print('      refinement for opencv model ', cv_string, ' failed at frame ', i, ' after init')
-                    #     if update_non_refined_on_fail:
-                    #         refined_bb_dict.update({tracker_String: np.array(cv_BB)})
-                    # else:
-                    cv_refine_success = True
-                    cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
-                    cv_BB_refined = cv_BB_refined_std
-                    cv_BB_refined[0] = cv_BB_refined_std[0] * image.size[0] / img_size_std
-                    cv_BB_refined[2] = cv_BB_refined_std[2] * image.size[0] / img_size_std
-                    cv_BB_refined[1] = cv_BB_refined_std[1] * image.size[1] / img_size_std
-                    cv_BB_refined[3] = cv_BB_refined_std[3] * image.size[1] / img_size_std
-                    refined_bb_dict.update({tracker_String: cv_BB_refined})
+                        with torch.no_grad():
+                            bb_fc_input = bb_fc_input.to(device=device)
+                            cv_BB_refined_std = bb_fc_model(bb_fc_input)
+                        bb_fc_input = bb_fc_input.to(device='cpu')  # is this needed ??????????????????????
+                        cv_BB_refined_std = cv_BB_refined_std.to(device='cpu')  # is this needed ??????????????????????
+
+                        if cv_BB_refined_std[2] < 2 or cv_BB_refined_std[3] < 2:  # BB too small
+                            cv_refine_success = False
+                            print('      refinement for opencv model ', cv_string, ' failed at frame ', i, ' after init')
+                            if update_non_refined_on_fail:
+                                refined_bb_dict.update({tracker_String: np.array(cv_BB)})
+                        else:
+                            cv_refine_success = True
+                        # cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
+                        cv_BB_refined_std = cv_BB_refined_std.numpy()
+                        cv_BB_refined = cv_BB_refined_std
+                        cv_BB_refined[0] = cv_BB_refined_std[0] * image.size[0] / img_size_std
+                        cv_BB_refined[2] = cv_BB_refined_std[2] * image.size[0] / img_size_std
+                        cv_BB_refined[1] = cv_BB_refined_std[1] * image.size[1] / img_size_std
+                        cv_BB_refined[3] = cv_BB_refined_std[3] * image.size[1] / img_size_std
+                        refined_bb_dict.update({tracker_String: cv_BB_refined})
+                    else:
+                        refined_bb_dict.update({tracker_String: np.array(cv_BB)})
                 else:
                     print('opencv model ', cv_string, ' failed at frame ', i, ' after init')
         ###############################
@@ -508,12 +555,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         elif i % opts['long_interval'] == 0:
             pos_data = torch.stack(pos_feats_all, 0).view(-1, feat_dim)
             neg_data = torch.stack(neg_feats_all, 0).view(-1, feat_dim)
+
             ######################
             pos_iou_data = np.concatenate(pos_ious_all)
             neg_iou_data = np.concatenate(neg_ious_all)
-            pos_ious_data_tensor = torch.from_numpy(pos_iou_data)
-            neg_ious_data_tensor = torch.from_numpy(neg_iou_data)
+            # pos_ious_data_tensor = torch.from_numpy(pos_iou_data)
+            # neg_ious_data_tensor = torch.from_numpy(neg_iou_data)
             ######################
+
             if detailed_printing:
                 print('      long term update')
             train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
@@ -533,6 +582,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     gt_rect.set_xy(gt[i, :2])
                     gt_rect.set_width(gt[i, 2])
                     gt_rect.set_height(gt[i, 3])
+
                     #################
                     result_ious[i] = overlap_ratio(result_bb[i], gt[i])[0]
                     result_centers[i] = result_bb[i, :2] + result_bb[i, 2:] / 2
@@ -542,16 +592,18 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     gt_rect.set_width(np.nan)
                     gt_rect.set_height(np.nan)
 
-
             rect.set_xy(result_bb[i, :2])
             rect.set_width(result_bb[i, 2])
             rect.set_height(result_bb[i, 3])
 
-            for tracker_String in tracker_strings_selected:
-                refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
-                refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
-                refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
-                # draw rectangle based on refined_bb_dict[tracker_String]
+            #########################################
+            if use_opencv:
+                for tracker_String in tracker_strings_selected:
+                    refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
+                    refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
+                    refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
+                    # draw rectangle based on refined_bb_dict[tracker_String]
+            #########################################
 
             if display:
                 plt.pause(.01)
@@ -575,36 +627,34 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     result_distances = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
     # fps = num_images / spf_total
     num_images_tracked = num_images-1  # I don't want to count initialization frame (i.e. frame 0)
-    print('    main loop finished, %d short updates' % (num_short_updates))
+    print('    main loop finished, %d frames, %d short updates' % (num_images, num_short_updates))
 
     return result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, False
 
 
 if __name__ == "__main__":
 
-    # device = torch.device('cuda:0')
-    # total_mem = torch.cuda.get_device_properties(device).total_memory
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--seq', default='DragonBaby', help='input seq')
+    parser.add_argument('-s', '--seq', default='seq_list', help='input seq')
     parser.add_argument('-j', '--json', default='', help='input json')
     parser.add_argument('-f', '--savefig', action='store_true', default=False)
     parser.add_argument('-d', '--display', action='store_true', default=True)
 
+    ################
+    parser.add_argument('-sh', '--seq_home', default=seq_home, help='input seq_home')
+    ################
+
     args = parser.parse_args()
     assert (args.seq != '' or args.json != '')
 
-    # ------
-    # img_list - list of (relative path) file names of the jpg images
-    #   example: '../dataset/OTB/DragonBaby/img/img####.jpg'
-    # gt - a (2-dim, N x 4) list of 4 coordinates of ground truth BB for each image
-    # init_bbox - this is gt[0]
-
-    # Generate sequence config
-    # img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
-
-    # Generate sequence of princeton dataset config
-    img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
+    ################
+    if args.seq == 'seq_list':
+        sequence_list = my_sequence_list
+    elif args.seq == 'all':
+        sequence_list = next(os.walk(seq_home))[1]
+    else:
+        sequence_list = [args.seq]
+    ################
 
     # ------
 
@@ -612,11 +662,25 @@ if __name__ == "__main__":
     if perform_tracking:
         # for loss_index in loss_indices_for_tracking:  # we comapare several loss functions
         tracking_started = time.time()
-        for loss_index, model_index in itertools.product(loss_indices_for_tracking, models_indices_for_tracking):
+        for model_index, loss_index, sequence in itertools.product(models_indices_for_tracking, loss_indices_for_tracking, sequence_list):
+
+            # ------
+            # img_list - list of (relative path) file names of the jpg images
+            #   example: '../dataset/OTB/DragonBaby/img/img####.jpg'
+            # gt - a (2-dim, N x 4) list of 4 coordinates of ground truth BB for each image
+            # init_bbox - this is gt[0]
+
+            # Generate sequence config
+            # img_list, init_bbox, gt, savefig_dir, display, result_path = gen_config(args)
+
+            # Generate sequence of princeton dataset config
+            args.seq = sequence
+            img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
+            # ------
 
             tracking_start = time.time()
             print('')
-            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index])
+            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index] + ' sequence ' + sequence)
 
             # each run is random, so we need to average before comparing
             for avg_iter in np.arange(0, avg_iters_per_sequence):
@@ -627,7 +691,7 @@ if __name__ == "__main__":
                 if init_after_loss:
                     init_frame_index = 0
                     while init_frame_index < len(img_list) - 1:  # we want at least one frame for tracking after init
-                        result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(img_list[init_frame_index:], gt[init_frame_index], gt=gt[init_frame_index:], savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index])
+                        result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(img_list[init_frame_index:], gt[init_frame_index], gt=gt[init_frame_index:], savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index], seq_name=sequence)
                         if init_frame_index == 0:
                             result_ious_tot = result_ious
                             num_images_tracked_tot = num_images_tracked
@@ -656,9 +720,10 @@ if __name__ == "__main__":
                     result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(
                         img_list, gt[0], gt=gt,
                         savefig_dir=savefig_dir, display=display, loss_index=loss_index,
-                        model_path=models_paths[model_index])
+                        model_path=models_paths[model_index], seq_name=sequence)
                     fps = num_images_tracked / spf_total
 
+                # compute step of running average of results over current sequence
                 if not init_after_loss:
                     if avg_iter == 0:
                         result_distances_avg = result_distances
@@ -689,75 +754,124 @@ if __name__ == "__main__":
             else:
                 res['fails_per_seq'] = failures_per_seq_avg
                 res['accuracy'] = accuracy_avg
-            result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '.json')
+            result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
             json.dump(res, open(result_fullpath, 'w'), indent=2)
 
             tracking_time = time.time() - tracking_start
-            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index] + ' - elapsed %.3f' % (tracking_time))
+            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index] + ' sequence ' + sequence + ' - elapsed %.3f' % (tracking_time))
 
         tracking_time = time.time() - tracking_started
-        print('finished %d losses x %d models - elapsed %d' % (len(loss_indices_for_tracking), len(models_indices_for_tracking), tracking_time))
+        print('finished %d losses x %d models x %d sequences - elapsed %d' % (len(loss_indices_for_tracking), len(models_indices_for_tracking), len(sequence_list), tracking_time))
 
     # ------
 
     if display_benchmark_results:
 
+        for model_index, loss_index in itertools.product(models_indices_for_tracking, loss_indices_for_tracking):
 
-        for loss_index, model_index in itertools.product(loss_indices_for_tracking, models_indices_for_tracking):
-        # for loss_index in loss_indices_for_tracking:
-            # result_fullpath = os.path.join(result_path, 'result' + str(loss_index) + '.json')
-            result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '.json')
-            with open(result_fullpath, "r") as read_file:
-                res = json.load(read_file)
+            if show_average_over_sequences:
+                if display_VOT_benchmark:
+                    avg_accuracy = []
+                    avg_fails = []
+                if display_OTB_benchmark:
+                    avg_success_rate = np.zeros((len(sequence_list),np.arange(0, 1.01, step=0.01).size))
+                    avg_precision = np.zeros((len(sequence_list),np.arange(0, 50.5, step=0.5).size))
 
-            if not init_after_loss:
-                result_distances = np.asarray(res['distances'])
-                result_ious = np.asarray(res['ious'])
+            for seq_iter, sequence in enumerate(sequence_list):
 
-                overlap_threshold = np.arange(0, 1.01, step=0.01)
-                success_rate = np.zeros(overlap_threshold.size)
-                for i in range(overlap_threshold.shape[0]):
-                    success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
-                # AUC = accuracy = sum(success_rate)
+                args.seq = sequence
+                img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
 
-                location_error_threshold = np.arange(0, 50.5, step=0.5)
-                precision = np.zeros(location_error_threshold.size)
-                for i in range(location_error_threshold.shape[0]):
-                    precision[i] = np.sum(result_distances < location_error_threshold[i]) / result_distances.shape[0]
+                if display_OTB_benchmark:
 
-                plt.figure(2)
-                # plt.plot(result_distances, label=losses_strings[loss_index])
-                plt.plot(result_distances, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                plt.ylabel('distances')
-                plt.xlabel('image number')
-                plt.legend()
+                    result_fullpath = os.path.join(result_path,'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-False' + '.json')
+                    with open(result_fullpath, "r") as read_file:
+                        res = json.load(read_file)
 
-                plt.figure(3)
-                plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                plt.ylabel('ious')
-                plt.xlabel('image number')
-                plt.legend()
+                    result_distances = np.asarray(res['distances'])
+                    result_ious = np.asarray(res['ious'])
 
-                plt.figure(4)
-                plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                plt.ylabel('success rate')
-                plt.xlabel('overlap threshold')
-                plt.legend()
+                    overlap_threshold = np.arange(0, 1.01, step=0.01)
+                    success_rate = np.zeros(overlap_threshold.size)
+                    for i in range(overlap_threshold.shape[0]):
+                        success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+                    # AUC = accuracy = sum(success_rate)
 
-                plt.figure(5)
-                plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                plt.ylabel('precision')
-                plt.xlabel('location error threshold')
-                plt.legend()
+                    location_error_threshold = np.arange(0, 50.5, step=0.5)
+                    precision = np.zeros(location_error_threshold.size)
+                    for i in range(location_error_threshold.shape[0]):
+                        precision[i] = np.sum(result_distances < location_error_threshold[i]) / result_distances.shape[0]
 
-            else:
-                plt.figure(6)
-                plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
-                                       cycler('marker',["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
-                plt.plot([res['fails_per_seq']], [res['accuracy']], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                plt.ylabel('accuracy')
-                plt.xlabel('failures per sequence')
-                plt.legend()
+                    if show_average_over_sequences:
+                        avg_success_rate[seq_iter,:] = success_rate
+                        avg_precision[seq_iter,:] = precision
+                        if sequence == sequence_list[-1]:
+                            avg_success_rate = avg_success_rate.mean(axis=0)
+                            avg_precision = avg_precision.mean(axis=0)
+                            plt.figure(11)
+                            plt.plot(avg_success_rate,label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.ylabel('success rate')
+                            plt.xlabel('overlap threshold')
+                            plt.legend()
+
+                            plt.figure(12)
+                            plt.plot(avg_precision,label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.ylabel('precision')
+                            plt.xlabel('location error threshold')
+                            plt.legend()
+                    if show_per_sequence:
+                        plt.figure(2)
+                        # plt.plot(result_distances, label=losses_strings[loss_index])
+                        plt.plot(result_distances, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.ylabel('distances')
+                        plt.xlabel('image number')
+                        plt.legend()
+
+                        plt.figure(3)
+                        plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.ylabel('ious')
+                        plt.xlabel('image number')
+                        plt.legend()
+
+                        plt.figure(4)
+                        plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.ylabel('success rate')
+                        plt.xlabel('overlap threshold')
+                        plt.legend()
+
+                        plt.figure(5)
+                        plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.ylabel('precision')
+                        plt.xlabel('location error threshold')
+                        plt.legend()
+
+                if display_VOT_benchmark:
+
+                    result_fullpath = os.path.join(result_path,'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-True' + '.json')
+                    with open(result_fullpath, "r") as read_file:
+                        res = json.load(read_file)
+
+                    if show_average_over_sequences:
+                        avg_accuracy.append(res['accuracy'])
+                        avg_fails.append(res['fails_per_seq'])
+                        if sequence == sequence_list[-1]:
+                            avg_accuracy = statistics.mean(avg_accuracy)
+                            avg_fails = statistics.mean(avg_fails)
+                            plt.figure(6)
+                            plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
+                                                       cycler('marker', ["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
+                            plt.plot([avg_fails], [avg_accuracy], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.ylabel('accuracy')
+                            plt.xlabel('failures per sequence')
+                            plt.legend()
+                    if show_per_sequence:
+                        plt.figure(13)
+                        plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
+                                               cycler('marker',["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
+                        plt.plot([res['fails_per_seq']], [res['accuracy']], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.ylabel('accuracy')
+                        plt.xlabel('failures per sequence')
+                        plt.legend()
 
 
         plt.show()

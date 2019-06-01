@@ -93,7 +93,7 @@ class FCRegressor(torch.nn.Module):
         else:
             if os.path.splitext(model_path)[1] == '.pth':
                 states = torch.load(model_path)
-                self.layers.load_state_dict(states['layers'])
+                self.layers.load_state_dict(states['FCRegressor_layers'])
             else:
                 raise RuntimeError("unused model format: %s" % (model_path))
 

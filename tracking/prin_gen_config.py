@@ -8,7 +8,8 @@ def prin_gen_config(args):
         # generate config from a sequence name
 
         # seq_home = '/data1/tracking/princeton/validation'
-        seq_home = '../dataset/OTB'
+        # seq_home = '../dataset/OTB'
+        seq_home = args.seq_home
         save_home = '../result_fig'
         result_home = '../result'
 
@@ -19,7 +20,7 @@ def prin_gen_config(args):
         gt_path = os.path.join(seq_home, seq_name, 'groundtruth_rect.txt')
         # gt_path = seq_home + '/' + seq_name + '/groundtruth_rect.txt'
 
-        print('loading images from: ', img_dir)
+        # print('loading images from: ', img_dir)
 
         img_list = os.listdir(img_dir)
         img_list.sort()
