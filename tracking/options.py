@@ -7,10 +7,10 @@ total_mem = torch.cuda.get_device_properties(device).total_memory
 opts = OrderedDict()
 if total_mem > 2500000000:
     opts['use_gpu'] = True
-    print('using gpu for tracking')
+    print('using gpu')
 else:
     opts['use_gpu'] = False
-    print('using cpu for tracking')
+    print('using cpu')
 
 opts['model_path'] = '../models/mdnet_vot-otb.pth'
 opts['new_model_path'] = '../models/mdnet_vot-otb_new.pth'
