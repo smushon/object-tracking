@@ -4,6 +4,24 @@ import pickle as pkl
 import torch
 
 
+def torch_overlap_ratio(rect1, rect2):
+
+    if rect1.dim() == 1:
+        rect1 = rect1[None, :]
+    if rect2.dim() == 1:
+        rect2 = rect2[None, :]
+
+    left = torch.max(rect1[:, 0], rect2[:, 0])
+    right = torch.min(rect1[:, 0] + rect1[:, 2], rect2[:, 0] + rect2[:, 2])
+    top = torch.max(rect1[:, 1], rect2[:, 1])
+    bottom = torch.min(rect1[:, 1] + rect1[:, 3], rect2[:, 1] + rect2[:, 3])
+
+    intersect = torch.max(torch.zeros_like(right), right - left) * torch.max(torch.zeros_like(right), bottom - top)
+    union = rect1[:, 2] * rect1[:, 3] + rect2[:, 2] * rect2[:, 3] - intersect
+    iou = torch.clamp(intersect / union, 0, 1)
+    return iou
+
+
 def overlap_ratio(rect1, rect2):
     '''
     Compute overlap ratio between two rects

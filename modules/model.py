@@ -10,6 +10,7 @@ import torch
 
 from options import *
 
+
 def append_params(params, module, prefix):
     for child in module.children():
         for k, p in child._parameters.items():
@@ -58,25 +59,26 @@ class FlattenLayer(torch.nn.Module):
 
 def init_weights(m):
     if type(m) == nn.Linear:
-        # nn.init.kaiming_normal_(m.model.fc1.weight)
-        # nn.init.constant_(m.model.fc1.bias, 0.)
+        nn.init.kaiming_normal_(m.weight)
+        nn.init.constant_(m.bias, 0.)
 
         # y = m.in_features
         # m.weight.data.normal_(0.0, 1 / np.sqrt(y))
         # m.bias.data.fill_(0)
 
-        torch.nn.init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0.01)
+        # torch.nn.init.xavier_uniform_(m.weight)
+        # m.bias.data.fill_(0.01)
 
 
 class FCRegressor(torch.nn.Module):
     # def __init__(self, *args):
-    def __init__(self, model_path=None):
+    def __init__(self, model_path=None, image_size=107):
         super(FCRegressor, self).__init__()
 
         input_layer_size = 2 * 4608 + 4  # images features, crop features, BB coordinates
         hidden_layer_size = 512
 
+        self.image_size = image_size
         self.layers = nn.Sequential(OrderedDict([
             ('flatten',  FlattenLayer()),
             ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
@@ -84,7 +86,7 @@ class FCRegressor(torch.nn.Module):
             ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, 4)))
         ]))
 
-        if model_path is None:
+        if (model_path is None) or (not os.path.isfile(model_path)):
             self.layers.apply(init_weights)
             # nn.init.kaiming_normal_(self.model.fc1.weight)
             # nn.init.constant_(self.model.fc1.bias, 0.)
@@ -104,18 +106,18 @@ class FCRegressor(torch.nn.Module):
 
         # crop
         x = x[0]
-        x[0] = min(opts['img_size']-1, x[0])
+        x[0] = min(self.image_size-1, x[0])
         x[0] = max(0, x[0])
-        x[1] = min(opts['img_size']-1, x[1])
+        x[1] = min(self.image_size-1, x[1])
         x[1] = max(0, x[1])
 
         x[2] = max(0, x[2])
         x[3] = max(0, x[3])
 
-        if x[0] + x[2] > opts['img_size']:
-            x[2] = opts['img_size'] - x[0]
-        if x[1] + x[3] > opts['img_size']:
-            x[3] = opts['img_size'] - x[1]
+        if x[0] + x[2] > self.image_size:
+            x[2] = self.image_size - x[0]
+        if x[1] + x[3] > self.image_size:
+            x[3] = self.image_size - x[1]
 
         return x
 
@@ -270,9 +272,10 @@ class Accuracy():
 
 class Precision():
     def __call__(self, pos_score, neg_score):
-        
-        scores = torch.cat((pos_score[:,1], neg_score[:,1]), 0)
-        topk = torch.topk(scores, pos_score.size(0))[1]
+
+        # returns how many (percentage) of the pos scores are in the top len(pos_scores) amongest all scores
+        scores = torch.cat((pos_score[:,1], neg_score[:,1]), 0)  # concatenate pos- and neg- scores
+        topk = torch.topk(scores, pos_score.size(0))[1]  # indices of topk |pos_scores| pos- and neg- scores
         prec = (topk < pos_score.size(0)).float().sum() / (pos_score.size(0)+1e-8)
 
         #######################

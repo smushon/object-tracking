@@ -5,11 +5,16 @@ from utils import *
 import torch.nn as nn
 import numpy as np
 
+import tracking.options as options
+opts = options.tracking_opts
+
 
 def forward_samples(model, image, samples, out_layer='conv3'):
     model.eval()
     extractor = RegionExtractor(image, samples, opts['img_size'], opts['padding'], opts['batch_test'])
     for i, regions in enumerate(extractor):
+        # if regions.requires_grad:
+        #     print('requires grad')
         regions = Variable(regions)
         if opts['use_gpu']:
             regions = regions.cuda()

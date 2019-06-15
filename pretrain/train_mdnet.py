@@ -31,7 +31,10 @@ else:
 
 data_path = 'data/vot-otb.pkl'
 
-
+from tracking_utils import *
+import options
+device = options.training_device
+opts = options.pretrain_opts
 def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['momentum'], w_decay=opts['w_decay']):
     params = model.get_learnable_params()
     param_list = []
@@ -45,28 +48,39 @@ def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['moment
     return optimizer
 
 
-def train_fcnet():
+def train_fcnet(md_model_path):
+
     with open(data_path, 'rb') as fp:
         data = pickle.load(fp)
+
+
     K = len(data)  # K is the number of sequences (58)
     dataset = [None] * K
 
-    seqnames = []
     for k, seqname in enumerate(data):
         img_list = data[seqname]['images']
         gt = data[seqname]['gt']  # gt is a ndarray of rectangles
         img_dir = os.path.join(img_home, seqname)
-        dataset[k] = RegionDataset(img_dir, img_list, gt, opts)  ############# ????????????????????????
-
-        seqnames.append(seqname)
+        dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts)
+        # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
 
     use_gpu = opts['use_gpu']
 
-    # Init model #
-    bb_fc_model_path = None  ##################### TBD ##########################
+    # Init bb refeinement model #
+    bb_fc_model_path = '../models/decider.pth'
     bb_fc_model = FCRegressor(bb_fc_model_path)
+    bb_fc_model.train()
     if use_gpu:
         bb_fc_model = bb_fc_model.cuda()
+
+    # Init MDNet model #
+    md_model = MDNet(md_model_path)
+    if opts['use_gpu']:
+        md_model = md_model.to(device)
+
+    # RefinementLoss = nn.CrossEntropyLoss(size_average=False)
+    RefinementLoss = nn.MSELoss(reduce=False)
+    optimizer = optim.Adam(bb_fc_model.parameters(), lr=0.001)
 
     best_prec = 0
     for i in range(opts['n_cycles']):
@@ -74,53 +88,81 @@ def train_fcnet():
         print("==== Start Cycle %d ====" % (i))
         k_list = np.random.permutation(K)  # reorder training sequences each epoch
         curr_epoch_prec_per_seq = np.zeros(K)
+
+        # we iterate over sequences
+        # from each sequence we will extract the next batch of frames to train in this epoch
+        # think of this as BFS
         for j, k in enumerate(k_list):
             tic = time.time()
 
-            pos_regions, neg_regions = dataset[k].next()
-            pos_target = np.ones(pos_regions.shape[0], dtype=int)
+            pos_regions, pos_bbs, num_example_list, image_list, gt_bbox_list = dataset[k].next()
+            idx = 0
+            sum_ious = 0
+            num_ious = 0
 
-            pos_regions = Variable(pos_regions)
-            if use_gpu:
-                pos_regions = pos_regions.cuda()
+            # iterting over frames in current batch
+            for num_examples, frame, gt_bb in zip(num_example_list, image_list, gt_bbox_list):  # replace with batch ????????????
+                num_ious += num_examples
 
-            #################################
-            cv_feats_BB = forward_samples(bb_fc_model, image, np.array([cv_BB]))
-            cv_feats_full_frame = forward_samples(bb_fc_model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
+                # frame = Variable(frame)
+                # gt_bb = Variable(gt_bb)
 
-            cv_BB_std = np.array(cv_BB)
-            img_size_std = opts['img_size']
-            cv_BB_std[0] = cv_BB[0] * img_size_std / image.size[0]
-            cv_BB_std[2] = cv_BB[2] * img_size_std / image.size[0]
-            cv_BB_std[1] = cv_BB[1] * img_size_std / image.size[1]
-            cv_BB_std[3] = cv_BB[3] * img_size_std / image.size[1]
+                # iterating over examples extracted for this frame
+                for region, bb in zip(pos_regions[idx:idx+num_examples], pos_bbs[idx:idx+num_examples]):
+                    # with torch.no_grad():
+                    feats_bb = forward_samples(md_model, frame, np.array([bb]))
+                    feats_frame = forward_samples(md_model, frame, np.array([[0, 0, frame.size[0], frame.size[1]]]))
 
-            bb_fc_input = torch.cat((cv_feats_BB, cv_feats_full_frame, torch.Tensor(np.array([cv_BB_std]))), dim=1)
+                    bb_std = np.array(bb)
+                    img_size_std = opts['img_size']
+                    bb_std[0] = bb[0] * img_size_std / frame.size[0]
+                    bb_std[2] = bb[2] * img_size_std / frame.size[0]
+                    bb_std[1] = bb[1] * img_size_std / frame.size[1]
+                    bb_std[3] = bb[3] * img_size_std / frame.size[1]
 
-            with torch.no_grad():
-                bb_fc_input = bb_fc_input.to(device=device)
-                cv_BB_refined_std = bb_fc_model(bb_fc_input)
+                    net_input = torch.cat((feats_bb, feats_frame, torch.Tensor(np.array([bb_std]))), dim=1)
+                    if use_gpu:
+                        net_input = net_input.to(device=device)
 
-            bb_fc_input = bb_fc_input.to(device='cpu')  # is this needed ??????????????????????
-            cv_BB_refined_std = cv_BB_refined_std.to(device='cpu')  # is this needed ??????????????????????
-            #################################
+                    bb_refined_std = bb_fc_model(net_input)
 
-            pos_score = bb_fc_model(pos_regions, k)
+                    # bb_refined_std = bb_refined_std.numpy()
+                    #                     # bb_refined = bb_refined_std
+                    #                     # bb_refined[0] = bb_refined_std[0] * frame.size[0] / img_size_std
+                    #                     # bb_refined[2] = bb_refined_std[2] * frame.size[0] / img_size_std
+                    #                     # bb_refined[1] = bb_refined_std[1] * frame.size[1] / img_size_std
+                    #                     # bb_refined[3] = bb_refined_std[3] * frame.size[1] / img_size_std
 
-            pos_target = torch.from_numpy(pos_target)
-            pos_target = Variable(pos_target)
-            if use_gpu:
-                pos_target = pos_target.cuda()
+                    # gt_bb_std = np.array(gt_bb)
+                    gt_bb_std = gt_bb
+                    gt_bb_std[0] = gt_bb[0] * img_size_std / frame.size[0]
+                    gt_bb_std[2] = gt_bb[2] * img_size_std / frame.size[0]
+                    gt_bb_std[1] = gt_bb[1] * img_size_std / frame.size[1]
+                    gt_bb_std[3] = gt_bb[3] * img_size_std / frame.size[1]
+                    gt_bb_std = torch.from_numpy(gt_bb_std).float()
 
-            loss = posLoss(pos_score, pos_target)
+                    # iou_score = overlap_ratio(bb_refined, gt_bb)[0]
+                    iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std)
+                    sum_ious += iou_score.item()
 
-            model.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])  ######## ????????????????
-            optimizer.step()
-            curr_epoch_prec_per_seq[k] = evaluator(pos_score)
+                    iou_target = torch.ones_like(iou_score)
+                    if use_gpu:
+                        iou_target = iou_target.to(device)
 
-            toc = time.time() - tic
+                    loss = RefinementLoss(iou_score, iou_target)
+
+                    bb_fc_model.zero_grad()
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm(bb_fc_model.parameters(), opts['grad_clip'])  ######## ????????????????
+
+                    # no need for 'with torch.no_grad():' since we use optimizer from torch.optim
+                    optimizer.step()
+
+                idx += num_examples
+
+            curr_epoch_prec_per_seq[k] = sum_ious / num_ious
+            toc = time.time() - tic  # time it took to train over current sequqnce
+
             if loss.dim() == 0:
                 print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
                       (i, j, K, k, loss.data, curr_epoch_prec_per_seq[k], toc))
@@ -128,7 +170,7 @@ def train_fcnet():
                 print("Cycle %d, [%d/%d] (seq %2d), Loss %.3f, Prec %.3f, Time %.3f" % \
                       (i, j, K, k, loss.data[0], curr_epoch_prec_per_seq[k], toc))
 
-        cur_prec = curr_epoch_prec_per_seq.mean()
+        cur_prec = curr_epoch_prec_per_seq.mean()  # precision of this epoch
         print("Mean Precision: %.3f" % (cur_prec))
 
         if cur_prec > best_prec:
@@ -144,8 +186,6 @@ def train_fcnet():
 
 def train_mdnet():
     # Init dataset #
-    # with open(data_path, 'rb') as fp:
-    #     data = pickle.load(fp)
     # to unpickle .pkl in python3 which is pickles in python2, should do like this
     with open(data_path, 'rb') as fp:
         data = pickle.load(fp)
@@ -189,11 +229,11 @@ def train_mdnet():
     # Init model #
     model = MDNet(opts['init_model_path'], K)
     if use_gpu:
-        model = model.cuda()
+        model = model.to(device)
     model.set_learnable_params(opts['ft_layers'])
 
     # Init criterion and optimizer #
-    # criterion = BinaryLoss()
+    # criterion = BinaryLoss
     # posLoss = FocalLoss(class_num=2,size_average=False,alpha=torch.ones(2,1)*0.25)
     # negLoss = FocalLoss(class_num=2, size_average=False,alpha=torch.ones(2,1)*0.25)
 
@@ -241,6 +281,10 @@ def train_mdnet():
             pos_score = model(pos_regions, k)
             neg_score = model(neg_regions, k)
 
+
+
+
+
             ########################################
             pos_target = pos_target.type(torch.long)
             neg_target = neg_target.type(torch.long)
@@ -251,6 +295,7 @@ def train_mdnet():
 
             loss = pos_loss + neg_loss
             ##########################################
+
             if loss.clone().cpu().dim() == 0:
                 total_loss += loss.clone().cpu().data
             else:
@@ -300,12 +345,15 @@ def train_mdnet():
         summary_different_model.close()
 
 
-train_mdnet = False
-train_fcnet = True
+run_train_mdnet = False
+run_train_fcnet = True
 if __name__ == "__main__":
 
-    if train_mdnet():
+    if run_train_mdnet:
         train_mdnet()
 
-    if train_fcnet:
-        train_fcnet()
+    # md_model_path = pretrain_opts['init_model_path']
+    md_model_path = pretrain_opts['model_path']
+
+    if run_train_fcnet:
+        train_fcnet(md_model_path)
