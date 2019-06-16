@@ -10,16 +10,20 @@ if torch.cuda.is_available():
     torch.cuda.empty_cache()
     training_device = torch.device('cuda:0')
     total_mem = torch.cuda.get_device_properties(training_device).total_memory
-    if total_mem > 2500000000:
+    pretrain_opts['large_memory_gpu'] = True  # regnet won't backward() on every sample
+    if total_mem > 2500000000:  # 2.5 GB
         pretrain_opts['use_gpu'] = True
-        print('training using gpu')
+        # pretrain_opts['large_memory_gpu'] = True
+        print('mdnet training using gpu')
     else:
         pretrain_opts['use_gpu'] = False
-        print('training using cpu')
+        # pretrain_opts['large_memory_gpu'] = False
+        print('mdnet training using cpu')
         training_device = 'cpu'
 else:
     pretrain_opts['use_gpu'] = False
-    print('training using cpu')
+    pretrain_opts['large_memory_gpu'] = False
+    print('mdnet training using cpu')
     training_device = 'cpu'
 
 

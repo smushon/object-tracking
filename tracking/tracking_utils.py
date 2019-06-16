@@ -1,7 +1,10 @@
-from options import *
 from torch.autograd import Variable
 import torch.optim as optim
-from utils import *
+
+import sys
+sys.path.append("..")
+from modules.utils import *
+
 import torch.nn as nn
 import numpy as np
 
@@ -9,14 +12,15 @@ import tracking.options as options
 opts = options.tracking_opts
 
 
-def forward_samples(model, image, samples, out_layer='conv3'):
+def forward_samples(model, image, samples, out_layer='conv3', is_cuda=opts['use_gpu']):
     model.eval()
     extractor = RegionExtractor(image, samples, opts['img_size'], opts['padding'], opts['batch_test'])
     for i, regions in enumerate(extractor):
         # if regions.requires_grad:
         #     print('requires grad')
         regions = Variable(regions)
-        if opts['use_gpu']:
+        if is_cuda:
+        # if opts['use_gpu']:
             regions = regions.cuda()
         feat = model(regions, out_layer=out_layer)
         if i == 0:

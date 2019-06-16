@@ -31,10 +31,15 @@ else:
 
 data_path = 'data/vot-otb.pkl'
 
-from tracking_utils import *
+import sys
+sys.path.append("..")
+from tracking.tracking_utils import *
+
 import options
 device = options.training_device
 opts = options.pretrain_opts
+
+
 def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['momentum'], w_decay=opts['w_decay']):
     params = model.get_learnable_params()
     param_list = []
@@ -48,11 +53,10 @@ def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['moment
     return optimizer
 
 
-def train_fcnet(md_model_path):
+def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mode=True, direct_loss=True):
 
     with open(data_path, 'rb') as fp:
         data = pickle.load(fp)
-
 
     K = len(data)  # K is the number of sequences (58)
     dataset = [None] * K
@@ -64,25 +68,35 @@ def train_fcnet(md_model_path):
         dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts)
         # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
 
-    use_gpu = opts['use_gpu']
+    # use_gpu = opts['use_gpu']
+    img_size_std = opts['img_size']
 
     # Init bb refeinement model #
-    bb_fc_model_path = '../models/decider.pth'
-    bb_fc_model = FCRegressor(bb_fc_model_path)
-    bb_fc_model.train()
-    if use_gpu:
-        bb_fc_model = bb_fc_model.cuda()
+    regnet_model_path = '../models/decider.pth'
+    if force_init_regnet:
+        regnet_model = RegNet(translate_mode=translate_mode)
+        best_prec = 0
+    else:
+        regnet_model = RegNet(translate_mode=translate_mode, model_path=regnet_model_path)
+        best_prec = 0  # should load from saved state !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # for param in regnet_model.parameters():
+    #     print(param.data)
+    regnet_model.train()
+    if torch.cuda.is_available():
+        regnet_model = regnet_model.cuda()
 
     # Init MDNet model #
     md_model = MDNet(md_model_path)
-    if opts['use_gpu']:
-        md_model = md_model.to(device)
+    if torch.cuda.is_available():
+        md_model = md_model.cuda()
 
-    # RefinementLoss = nn.CrossEntropyLoss(size_average=False)
-    RefinementLoss = nn.MSELoss(reduce=False)
-    optimizer = optim.Adam(bb_fc_model.parameters(), lr=0.001)
+    RefinementLoss = nn.MSELoss()
+    # RefinementLoss = nn.L1Loss()
+    # optimizer = optim.Adam(regnet_model.parameters(), lr=0.001)
+    optimizer = optim.Adam(regnet_model.parameters(), lr=lr)
+    regnet_model.zero_grad()
 
-    best_prec = 0
+    # cycle <> epoch, because each cycle we cycle through all sequences, but work only on a batch of frames from each
     for i in range(opts['n_cycles']):
         print('')
         print("==== Start Cycle %d ====" % (i))
@@ -91,7 +105,8 @@ def train_fcnet(md_model_path):
 
         # we iterate over sequences
         # from each sequence we will extract the next batch of frames to train in this epoch
-        # think of this as BFS
+        # think of this as BFS training flow while DFS would have been to train over each sequence fully before moving
+        # on to the next sequence
         for j, k in enumerate(k_list):
             tic = time.time()
 
@@ -99,6 +114,12 @@ def train_fcnet(md_model_path):
             idx = 0
             sum_ious = 0
             num_ious = 0
+            total_loss = 0
+            num_loss_steps = 0
+
+            # we want SGD so we reset grads before each new batch
+            # if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
+            #     regnet_model.zero_grad()
 
             # iterting over frames in current batch
             for num_examples, frame, gt_bb in zip(num_example_list, image_list, gt_bbox_list):  # replace with batch ????????????
@@ -107,81 +128,145 @@ def train_fcnet(md_model_path):
                 # frame = Variable(frame)
                 # gt_bb = Variable(gt_bb)
 
+                # resizing (scaling) GT-BB to fit standard 107x107 frame
+                gt_bb_std = gt_bb
+                gt_bb_std[0] = gt_bb[0] * img_size_std / frame.size[0]
+                gt_bb_std[2] = gt_bb[2] * img_size_std / frame.size[0]
+                gt_bb_std[1] = gt_bb[1] * img_size_std / frame.size[1]
+                gt_bb_std[3] = gt_bb[3] * img_size_std / frame.size[1]
+                if torch.cuda.is_available():
+                    gt_bb_std_as_tensor = torch.from_numpy(gt_bb_std).float().cuda()
+                else:
+                    gt_bb_std_as_tensor = torch.from_numpy(gt_bb_std).float()
+
                 # iterating over examples extracted for this frame
                 for region, bb in zip(pos_regions[idx:idx+num_examples], pos_bbs[idx:idx+num_examples]):
                     # with torch.no_grad():
-                    feats_bb = forward_samples(md_model, frame, np.array([bb]))
-                    feats_frame = forward_samples(md_model, frame, np.array([[0, 0, frame.size[0], frame.size[1]]]))
+                    feats_bb = forward_samples(md_model, frame, np.array([bb]), is_cuda=torch.cuda.is_available())
+                    feats_frame = forward_samples(md_model, frame, np.array([[0, 0, frame.size[0], frame.size[1]]]), is_cuda=torch.cuda.is_available())
 
-                    bb_std = np.array(bb)
-                    img_size_std = opts['img_size']
+                    # bb_std = np.array(bb)
+                    bb_std = bb
                     bb_std[0] = bb[0] * img_size_std / frame.size[0]
                     bb_std[2] = bb[2] * img_size_std / frame.size[0]
                     bb_std[1] = bb[1] * img_size_std / frame.size[1]
                     bb_std[3] = bb[3] * img_size_std / frame.size[1]
 
-                    net_input = torch.cat((feats_bb, feats_frame, torch.Tensor(np.array([bb_std]))), dim=1)
-                    if use_gpu:
-                        net_input = net_input.to(device=device)
+                    if torch.cuda.is_available():
+                        bb_std_as_tensor = torch.Tensor(np.array([bb_std])).cuda()
+                    else:
+                        bb_std_as_tensor = torch.Tensor(np.array([bb_std]))
 
-                    bb_refined_std = bb_fc_model(net_input)
+                    net_input = torch.cat((feats_bb, feats_frame, bb_std_as_tensor), dim=1)
+                    # if torch.cuda.is_available():
+                    #     # net_input = net_input.to(device=device)
+                    #     net_input = net_input.cuda()
 
-                    # bb_refined_std = bb_refined_std.numpy()
-                    #                     # bb_refined = bb_refined_std
-                    #                     # bb_refined[0] = bb_refined_std[0] * frame.size[0] / img_size_std
-                    #                     # bb_refined[2] = bb_refined_std[2] * frame.size[0] / img_size_std
-                    #                     # bb_refined[1] = bb_refined_std[1] * frame.size[1] / img_size_std
-                    #                     # bb_refined[3] = bb_refined_std[3] * frame.size[1] / img_size_std
+                    bb_refined_std = regnet_model(net_input)
 
-                    # gt_bb_std = np.array(gt_bb)
-                    gt_bb_std = gt_bb
-                    gt_bb_std[0] = gt_bb[0] * img_size_std / frame.size[0]
-                    gt_bb_std[2] = gt_bb[2] * img_size_std / frame.size[0]
-                    gt_bb_std[1] = gt_bb[1] * img_size_std / frame.size[1]
-                    gt_bb_std[3] = gt_bb[3] * img_size_std / frame.size[1]
-                    gt_bb_std = torch.from_numpy(gt_bb_std).float()
+                    if translate_mode:
+                        bb_refined_std += gt_bb_std_as_tensor
 
                     # iou_score = overlap_ratio(bb_refined, gt_bb)[0]
-                    iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std)
+                    iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std_as_tensor)
                     sum_ious += iou_score.item()
 
-                    iou_target = torch.ones_like(iou_score)
-                    if use_gpu:
-                        iou_target = iou_target.to(device)
+                    if direct_loss:
+                        # loss = RefinementLoss(bb_refined_std, gt_bb_std_as_tensor)
+                        loss = RefinementLoss(10*(bb_refined_std - gt_bb_std_as_tensor)/img_size_std, torch.zeros_like(gt_bb_std_as_tensor))
+                    else:
+                        # ----- iou loss -----------
 
-                    loss = RefinementLoss(iou_score, iou_target)
+                        # # iou_score = overlap_ratio(bb_refined, gt_bb)[0]
+                        # iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std_as_tensor)
+                        # sum_ious += iou_score.item()
 
-                    bb_fc_model.zero_grad()
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm(bb_fc_model.parameters(), opts['grad_clip'])  ######## ????????????????
+                        iou_target = torch.ones_like(iou_score)
+                        if torch.cuda.is_available():
+                            # iou_target = iou_target.to(device)
+                            iou_target = iou_target.cuda()
 
-                    # no need for 'with torch.no_grad():' since we use optimizer from torch.optim
-                    optimizer.step()
+                        iou_loss = RefinementLoss(iou_score, iou_target)
+
+                        # ----- distance loss -----------
+
+                        bb_refined_std_center = bb_refined_std[:2] + bb_refined_std[2:] / 2
+                        gt_bb_std_center_as_tensor = gt_bb_std_as_tensor[:2] + gt_bb_std_as_tensor[2:] / 2
+                        result_distance = torch.dist(bb_refined_std_center, gt_bb_std_center_as_tensor)
+                        result_distance_norm = result_distance / img_size_std
+
+                        distance_target = torch.zeros_like(result_distance_norm)
+                        if torch.cuda.is_available():
+                            distance_target = distance_target.cuda()
+
+                        distance_loss = RefinementLoss(result_distance_norm, distance_target)
+
+                        # ----- size loss -----------
+
+                        bb_refined_std_size = bb_refined_std[2]*bb_refined_std[3]
+                        gt_bb_std_size = gt_bb_std_as_tensor[2]*gt_bb_std_as_tensor[3]
+                        size_relative = bb_refined_std_size / gt_bb_std_size
+                        # size_relative = torch.log(size_relative)
+
+                        size_target = torch.ones_like(result_distance_norm)
+                        if torch.cuda.is_available():
+                            size_target = size_target.cuda()
+
+                        size_loss = RefinementLoss(size_relative, size_target)
+
+                        # ----- combined loss -----------
+
+                        if translate_mode:
+                            loss = (distance_loss * 5) + (size_loss / 4) #+ iou_loss
+                        else:
+                            loss = distance_loss + size_loss
+
+                    if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
+                        total_loss += loss
+                    else:
+                        # we don't normalize loss because number of back-props before optim.step() isnt deterministic
+                        loss.backward()
+                        total_loss += loss.clone().cpu().data
+
+                    num_loss_steps += 1
 
                 idx += num_examples
+
+            # we want SGD so we update grads only after batch has ended
+            if not num_loss_steps == num_ious:
+                raise Exception('sanity failed: loss_steps = %d, num_iou = %d' % (num_loss_steps, num_ious))
+            total_loss = total_loss / num_ious
+            if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
+                total_loss.backward()
+            # torch.nn.utils.clip_grad_norm(regnet_model.parameters(), opts['grad_clip'])  # ??????????????
+            optimizer.step()  # no need for 'with torch.no_grad():' since we use optimizer from torch.optim
+            regnet_model.zero_grad()
 
             curr_epoch_prec_per_seq[k] = sum_ious / num_ious
             toc = time.time() - tic  # time it took to train over current sequqnce
 
-            if loss.dim() == 0:
-                print("Cycle %d, [%d/%d] (%2d), Loss %.3f, Prec %.3f, Time %.3f" % \
-                      (i, j, K, k, loss.data, curr_epoch_prec_per_seq[k], toc))
-            else:
-                print("Cycle %d, [%d/%d] (seq %2d), Loss %.3f, Prec %.3f, Time %.3f" % \
-                      (i, j, K, k, loss.data[0], curr_epoch_prec_per_seq[k], toc))
+            # displaying stats for current sequence
+            # reminder: we only processed a batch of frames from current sequence, not all of it
+            if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
+                if total_loss.dim() == 0:
+                    total_loss = total_loss.data
+                else:
+                    total_loss = total_loss.data[0]  # what ???????????????????????????????????????????
+            print("Cycle %d, [iter %d/%d] (seq %2d), Loss %.3f, IoU %.3f, Time %.3f" % \
+                      (i, j, K, k, total_loss, curr_epoch_prec_per_seq[k], toc))
 
         cur_prec = curr_epoch_prec_per_seq.mean()  # precision of this epoch
-        print("Mean Precision: %.3f" % (cur_prec))
+        print("Mean IoU: %.3f" % (cur_prec))
 
         if cur_prec > best_prec:
             best_prec = cur_prec
-            if use_gpu:
-                model = model.cpu()
-            states = {'FCRegressor_layers': model.layers.state_dict()}
-            print("Save model to %s" % bb_fc_model_path)
-            torch.save(states, bb_fc_model_path)
-            if use_gpu:
-                model = model.cuda()
+            if torch.cuda.is_available():
+                regnet_model = regnet_model.cpu()
+            states = {'RegNet_layers': regnet_model.layers.state_dict()}
+            print("Save regnet_model to %s" % regnet_model_path)
+            torch.save(states, regnet_model_path)
+            if torch.cuda.is_available():
+                regnet_model = regnet_model.cuda()
 
 
 def train_mdnet():
@@ -345,15 +430,47 @@ def train_mdnet():
         summary_different_model.close()
 
 
-run_train_mdnet = False
-run_train_fcnet = True
+force_train_mdnet = False
+force_train_regnet = True
+force_init_regnet = False
+import argparse
 if __name__ == "__main__":
 
-    if run_train_mdnet:
+    parser = argparse.ArgumentParser()
+    # ----- mdnet related -----
+    parser.add_argument('-md', '--train_mdnet', action='store_true')  # defaut: don't traing mdnet
+    # ----- regnet related -----
+    parser.add_argument('-rg', '--train_regnet', action='store_true')  # defaut: don't traing regnet
+    parser.add_argument('-tm', '--trained_mdnet', action='store_true')  # default: use original mdnet weights
+    parser.add_argument('-ir', '--init_regnet', action='store_false')  # default: init regnet (else - cont saved state)
+    parser.add_argument('-lr', '--learning_rate', default=0.001, type=float, help='learning rate')
+    parser.add_argument('-ot', '--translate_mode', action='store_false')  # default: output as coord shift
+    parser.add_argument('-il', '--indirect_loss', action='store_true')  # default: direct (mse) loss
+    args = parser.parse_args()
+
+    # ------------
+
+    if args.train_mdnet or force_train_mdnet:
+        print('trainig mdnet')
         train_mdnet()
 
-    # md_model_path = pretrain_opts['init_model_path']
-    md_model_path = pretrain_opts['model_path']
+    # ------------
 
-    if run_train_fcnet:
-        train_fcnet(md_model_path)
+    # we need md_model for extracting features from frames
+    # these features are used as inputs to the regressor network
+    # we selct either the original MDNet paper model, or one that we trained
+    if args.trained_mdnet:
+        md_model_path = pretrain_opts['model_path']
+    else:
+        md_model_path = pretrain_opts['init_model_path']
+    if args.train_regnet or force_train_regnet:
+        print('trainig regnet, learning_rate=%.4f' % (args.learning_rate))
+        if args.translate_mode:
+            print('regnet output translation')
+        else:
+            print('regnet outputs coordinates')
+        if args.indirect_loss:
+            print('loss: combined')
+        else:
+            print('loss: mse')
+        train_regnet(md_model_path, force_init_regnet=force_init_regnet or args.init_regnet, lr=args.learning_rate, translate_mode=args.translate_mode, direct_loss=not args.indirect_loss)

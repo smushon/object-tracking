@@ -166,7 +166,7 @@ tracker_strings_selected = ['kcf', 'mil'] #, 'medianflow']
 
 bb_fc_model_path = None  # if we learned the weights during offline learning #################### TBD ##################################
 use_opencv = True
-perform_refinement = True  # True - will use FCRegressor to refine BB, False - will use opencv tracker output as-is
+perform_refinement = True  # True - will use RegNet to refine BB, False - will use opencv tracker output as-is
 update_non_refined_on_fail = True  # True - will use opencv tracker output, False - will use last successful refinement
 # ---------------------------------------------------
 
@@ -269,7 +269,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
         # init bb_fc_model
         if perform_refinement:
-            bb_fc_model = FCRegressor(bb_fc_model_path)
+            bb_fc_model = RegNet(bb_fc_model_path)
             if opts['use_gpu']:
                 bb_fc_model = bb_fc_model.to(device)
             bb_fc_model.eval()

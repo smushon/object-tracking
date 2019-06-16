@@ -72,7 +72,7 @@ class PosRegionDataset(data.Dataset):
             # image_list.append(image)
             # bbox = torch.from_numpy(bbox).float()
             gt_bbox_list.append(bbox)
-            num_example_list.append(pos_examples.size)
+            num_example_list.append(len(pos_examples))
             pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples, dtype='float32')), axis=0)
 
         pos_regions = torch.from_numpy(pos_regions).float()
