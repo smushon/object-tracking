@@ -55,4 +55,4 @@ def prin_gen_config(args):
     else:
         savefig_dir = ''
 
-    return img_list, init_bbox, gt, savefig_dir, args.display, result_path
+    return img_list, init_bbox, gt, savefig_dir, (not args.dont_display), result_path

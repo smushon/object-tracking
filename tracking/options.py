@@ -10,14 +10,14 @@ if torch.cuda.is_available():
     total_mem = torch.cuda.get_device_properties(tracking_device).total_memory
     if total_mem > 2500000000:
         tracking_opts['use_gpu'] = True
-        print('tracking using gpu')
+        # print('tracking using gpu')
     else:
         tracking_opts['use_gpu'] = False
-        print('tracking using cpu')
+        # print('tracking using cpu')
         tracking_device = 'cpu'
 else:
     tracking_opts['use_gpu'] = False
-    print('tracking using cpu')
+    # print('tracking using cpu')
     tracking_device = 'cpu'
 
 

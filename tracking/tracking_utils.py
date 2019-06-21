@@ -109,14 +109,15 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
         batch_neg_feats = Variable(neg_feats.index_select(0, neg_cur_idx))
 
         #####################
-        # print(type(pos_ious))
-        # print(pos_ious[0])
-        # print(type(pos_cur_idx.cpu()))
-        # print(pos_cur_idx.cpu()[0])
-        # print(pos_ious[pos_cur_idx.cpu()][0])
-        # print('============')
-        batch_pos_ious = pos_ious[pos_cur_idx.cpu()]
-        batch_neg_ious = neg_ious[neg_cur_idx.cpu()]
+        if loss_index == 2:
+            # print(type(pos_ious))
+            # print(pos_ious[0])
+            # print(type(pos_cur_idx.cpu()))
+            # print(pos_cur_idx.cpu()[0])
+            # print(pos_ious[pos_cur_idx.cpu()][0])
+            # print('============')
+            batch_pos_ious = pos_ious[pos_cur_idx.cpu()]
+            batch_neg_ious = neg_ious[neg_cur_idx.cpu()]
         #####################
 
         # hard negative mining
@@ -136,7 +137,8 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
 
         #####################
         # hard negative mining
-        batch_neg_ious = batch_neg_ious[batch_neg_ious.argsort()[-batch_neg:]]
+        if loss_index == 2:
+            batch_neg_ious = batch_neg_ious[batch_neg_ious.argsort()[-batch_neg:]]
         #####################
 
         # forward
@@ -158,21 +160,22 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
 
         loss = criterion(score, target)
 
-        #############
-        pos_ious_loss = -0.25 * np.power(1 - batch_pos_ious, 2) * np.log(batch_pos_ious)
-        neg_ious_loss = -0.5 * np.power(1 - batch_neg_ious, 2) * np.log(batch_neg_ious)
-        ious_loss = np.sum(pos_ious_loss) + np.sum(neg_ious_loss)
-        # batch_pos_ious_tensor = torch.from_numpy(batch_pos_ious)
-        # batch_neg_ious_tensor = torch.from_numpy(batch_neg_ious)
-        # ious_loss = iou_loss(batch_pos_ious_tensor, batch_neg_ious_tensor)
+        ##########################
+        if loss_index == 2:
+            pos_ious_loss = -0.25 * np.power(1 - batch_pos_ious, 2) * np.log(batch_pos_ious)
+            neg_ious_loss = -0.5 * np.power(1 - batch_neg_ious, 2) * np.log(batch_neg_ious)
+            ious_loss = np.sum(pos_ious_loss) + np.sum(neg_ious_loss)
 
-        # print(ious_loss)
-        # print(loss)
+            # batch_pos_ious_tensor = torch.from_numpy(batch_pos_ious)
+            # batch_neg_ious_tensor = torch.from_numpy(batch_neg_ious)
+            # ious_loss = iou_loss(batch_pos_ious_tensor, batch_neg_ious_tensor)
 
-        if loss_index==2:
+            # print(ious_loss)
+            # print(loss)
+
             loss = 0.5*(loss+ious_loss)
-        # loss = ious_loss
-        #############
+            # loss = ious_loss
+        ##########################
 
         model.zero_grad()
         loss.backward()

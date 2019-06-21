@@ -14,16 +14,16 @@ if torch.cuda.is_available():
     if total_mem > 2500000000:  # 2.5 GB
         pretrain_opts['use_gpu'] = True
         # pretrain_opts['large_memory_gpu'] = True
-        print('mdnet training using gpu')
+        # print('mdnet training using gpu')
     else:
         pretrain_opts['use_gpu'] = False
         # pretrain_opts['large_memory_gpu'] = False
-        print('mdnet training using cpu')
+        # print('mdnet training using cpu')
         training_device = 'cpu'
 else:
     pretrain_opts['use_gpu'] = False
     pretrain_opts['large_memory_gpu'] = False
-    print('mdnet training using cpu')
+    # print('mdnet training using cpu')
     training_device = 'cpu'
 
 
@@ -60,4 +60,4 @@ pretrain_opts['momentum'] = 0.9
 pretrain_opts['grad_clip'] = 10
 pretrain_opts['ft_layers'] = ['conv','fc']
 pretrain_opts['lr_mult'] = {'fc':10}
-pretrain_opts['n_cycles'] = 50
+pretrain_opts['n_cycles'] = 1000  # 50

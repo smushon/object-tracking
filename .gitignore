@@ -8,3 +8,8 @@ tracking/*.pyc
 models/imagenet-vgg-m.mat
 models/*.pth
 pretrain/runs
+/**/__pycache__/
+/**/*.pyc
+pretrain/__pycache__/
+/**/*.xml
+

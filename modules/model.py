@@ -97,7 +97,12 @@ class RegNet(torch.nn.Module):
         else:
             if os.path.splitext(model_path)[1] == '.pth':
                 states = torch.load(model_path)
-                self.layers.load_state_dict(states['RegNet_layers'])
+                if 'RegNet_layers' in states.keys():
+                    self.layers.load_state_dict(states['RegNet_layers'])
+                else:
+                    raise RuntimeError("no saved layers")
+                if 'translate_mode' in states.keys():
+                    self.translate_mode = states['translate_mode']  # override input
             else:
                 raise RuntimeError("unused model format: %s" % (model_path))
 
