@@ -73,7 +73,8 @@ def init_weights(m):
 
 class RegNet(torch.nn.Module):
     # def __init__(self, *args):
-    def __init__(self, translate_mode=True, model_path=None, image_size=107):
+    # def __init__(self, translate_mode=True, model_path=None, image_size=107):
+    def __init__(self, translate_mode=True, state=None, image_size=107):
         super(RegNet, self).__init__()
 
         input_layer_size = 2 * 4608 + 4  # images features, crop features, BB coordinates
@@ -88,33 +89,69 @@ class RegNet(torch.nn.Module):
             ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, 4)))
         ]))
 
-        if (model_path is None) or (not os.path.isfile(model_path)):
+        # if (model_path is None) or (not os.path.isfile(model_path)):
+        if (state == None) or ('RegNet_layers' not in state.keys()):
             self.layers.apply(init_weights)
             # nn.init.kaiming_normal_(self.model.fc1.weight)
             # nn.init.constant_(self.model.fc1.bias, 0.)
             # nn.init.kaiming_normal_(self.model.fc2.weight)
             # nn.init.constant_(self.model.fc2.bias, 0.)
         else:
-            if os.path.splitext(model_path)[1] == '.pth':
-                states = torch.load(model_path)
-                if 'RegNet_layers' in states.keys():
-                    self.layers.load_state_dict(states['RegNet_layers'])
-                else:
-                    raise RuntimeError("no saved layers")
-                if 'translate_mode' in states.keys():
-                    self.translate_mode = states['translate_mode']  # override input
-            else:
-                raise RuntimeError("unused model format: %s" % (model_path))
+            self.layers.load_state_dict(state['RegNet_layers'])
+            if 'translate_mode' in state.keys():
+                self.translate_mode = state['translate_mode']  # override input
 
     # x is a BB, output if a refined BB
     def forward(self, x):
         if self.translate_mode:
-            input_bb = x.data[0,-4:].clone()  # assuming single frame in batch.... I need to generalize this !!!!!!!!!
+            input_bb = x.data[:,-4:].clone()
         for name, module in self.layers.named_children():
             x = module(x)
         # x = (x1, y1, width, height)
 
-        x = x[0]  # assuming single frame in batch.... I need to generalize this !!!!!!!!!
+        if self.translate_mode:
+            x += input_bb
+
+        # ----- crop ------
+        # we assume object is in frame and just require fine-tuning, so x should also be in frame
+        # we won't return error if x is out of frame.
+        min_bb_size = 2
+
+        ones = torch.ones_like(x[:, 0])
+        zeros = torch.zeros_like(x[:, 0])
+
+        # x1,y1 must be within frame boundries
+        x[:, 0] = torch.where(x[:, 0] < ones * (self.image_size - 1 - min_bb_size), x[:, 0], ones * (self.image_size - 1 - min_bb_size))
+        x[:, 0] = torch.where(x[:, 0] > zeros, x[:, 0], zeros)
+        x[:, 1] = torch.where(x[:, 1] < ones * (self.image_size - 1 - min_bb_size), x[:, 1], ones * (self.image_size - 1 - min_bb_size))
+        x[:, 1] = torch.where(x[:, 1] > zeros, x[:, 1], zeros)
+
+        # height/width can't be negative
+        x[:, 2] = torch.where(x[:, 2] > zeros + min_bb_size, x[:, 2], zeros + min_bb_size)
+        x[:, 3] = torch.where(x[:, 3] > zeros + min_bb_size, x[:, 3], zeros + min_bb_size)
+
+        # height/width can't be too large
+        # i.e. x2,y2 can't extend beyond frame edges
+        x[:, 2] = torch.where(x[:, 2] < self.image_size - x[:, 0], x[:, 2], self.image_size - x[:, 0])
+        x[:, 0] -= torch.where(zeros > min_bb_size - x[:, 2], zeros, min_bb_size - x[:, 2])
+        x[:, 3] = torch.where(x[:, 3] < self.image_size - x[:, 1], x[:, 3], self.image_size - x[:, 1])
+        x[:, 1] -= torch.where(zeros > min_bb_size - x[:, 3], zeros, min_bb_size - x[:, 3])
+
+        if self.translate_mode:
+            x -= input_bb
+
+        return x
+
+    # old version assuming single frame in batch
+    # x is a BB, output if a refined BB
+    def forward_old(self, x):
+        if self.translate_mode:
+            input_bb = x.data[0,-4:].clone()
+        for name, module in self.layers.named_children():
+            x = module(x)
+        # x = (x1, y1, width, height)
+
+        x = x[0]
 
         if self.translate_mode:
             x += input_bb

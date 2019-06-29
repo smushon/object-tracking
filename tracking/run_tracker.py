@@ -6,6 +6,7 @@ import argparse
 import json
 from PIL import Image
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 import torch
 import torch.utils.data as data
@@ -97,7 +98,7 @@ else:
 benchmark_dataset = 'OTB'
 seq_home = os.path.join(seq_home, benchmark_dataset)
 
-my_sequence_list = ['DragonBaby', 'Bird1']  #, 'Car4', 'BlurFace']
+my_sequence_list = ['DragonBaby', 'Car4', 'Woman']
 show_average_over_sequences = True
 show_per_sequence = True
 ###########################################
@@ -123,7 +124,9 @@ else:  # minimalist - just see the code works
     loss_indices_for_tracking = [1]
     models_indices_for_tracking = [1, 2]
 
-sequence_len_limit = 4
+# load_features_from_file = True  ############# hack for debug ###################33
+
+sequence_len_limit = 3
 save_features_to_file = False
 detailed_printing = False
 
@@ -163,6 +166,8 @@ tracker_strings_selected = ['kcf', 'mil'] #, 'medianflow']
 #     trackers_dict.update( {tracker_String : OPENCV_OBJECT_TRACKERS[tracker_String]()})
 
 bb_fc_model_path = '../models/regnet.pth'
+if not os.path.isfile(bb_fc_model_path):
+    raise Exception('no saved RegNet state')
 regnet_state = torch.load(bb_fc_model_path)
 if 'translate_mode' in regnet_state.keys():
     translate_mode = regnet_state['translate_mode']  # we overide train_regnet input according to saved state
@@ -172,6 +177,7 @@ else:
 use_opencv = False
 perform_refinement = True  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
 use_regnet = True
+use_lin_reg = True
 update_non_refined_on_fail = True  # True - will use opencv tracker output, False - will use last successful refinement
 # ---------------------------------------------------
 
@@ -192,6 +198,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         num_images = len(img_list)
 
     # Init bbox per GT of frame 0
+    if init_bbox is None:
+        raise Exception('No init BBox for tracker')
     target_bbox = np.array(init_bbox)
     result = np.zeros((num_images, 4))
     result_bb = np.zeros((num_images, 4))
@@ -292,14 +300,17 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     # use_regnet - i.e. we can use alongside BBRegressor regardless of opencv
     # perform_refinement - i.e. we can take opencv/mdnet trackers output as-is
     if use_regnet:
-        bb_fc_model = RegNet(translate_mode=translate_mode, model_path=bb_fc_model_path)
+        bb_fc_model = RegNet(translate_mode=translate_mode, state=regnet_state)
+        if 'best_prec' in regnet_state.keys():
+            best_prec = regnet_state['best_prec']
+            print("    regnet loaded with precision = %.4f" % best_prec)
         if opts['use_gpu']:
             bb_fc_model = bb_fc_model.to(device)
         bb_fc_model.eval()
     ######################
 
     # Train bbox regressor
-    if perform_refinement:
+    if perform_refinement and use_lin_reg:
         if detailed_printing:
             print('       training BB regressor...')
         bbreg_examples = gen_samples(SampleGenerator('uniform', image.size, 0.3, 1.5, 1.1),
@@ -335,8 +346,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         if detailed_printing:
             print('       extracting features from BB samples...')
         if fewer_images:  # shorter run in general, less accurate
-            pos_feats = forward_samples(model, image[:50], pos_examples)
-            neg_feats = forward_samples(model, image[:500], neg_examples)
+            pos_feats = forward_samples(model, image, pos_examples[:50])
+            neg_feats = forward_samples(model, image, neg_examples[:500])
         else:
             pos_feats = forward_samples(model, image, pos_examples)
             neg_feats = forward_samples(model, image, neg_examples)
@@ -368,6 +379,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         print('       finished first training pass on FC layers.')
 
     # Init sample generators
+    # sample_generator - for tracking
+    # pos_generator, neg_generator - for online re-training
     sample_generator = SampleGenerator('gaussian', image.size, opts['trans_f'], opts['scale_f'], valid=True)
     pos_generator = SampleGenerator('gaussian', image.size, 0.1, 1.2)
     neg_generator = SampleGenerator('uniform', image.size, 1.5, 1.2)
@@ -393,23 +406,38 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         dpi = 80.0
         figsize = (image.size[0] / dpi, image.size[1] / dpi)
 
-        fig = plt.figure(1,frameon=False, figsize=figsize, dpi=dpi)
-        ax = plt.Axes(fig, [0., 0., 1., 1.])
-        ax.set_axis_off()
-        fig.add_axes(ax)
+        fig = plt.figure(1,frameon=False, figsize=figsize, dpi=dpi/0.8)
+        fig.clf()
+        # ax = plt.Axes(fig, [0., 0., 1., 1.])
+        # ax.set_axis_off()
+        # fig.add_axes(ax)
+        ax = plt.axes()
         im = ax.imshow(image, aspect='auto')
+        ax.get_xaxis().set_ticks([])
+        ax.get_yaxis().set_ticks([])
 
         if gt is not None:
-            gt_rect = plt.Rectangle(tuple(gt[0, :2]), gt[0, 2], gt[0, 3], linewidth=3, edgecolor="#00ff00", zorder=1, fill=False)
-            ax.add_patch(gt_rect)
+            gt_rect = patches.Rectangle(tuple(gt[0, :2]), gt[0, 2], gt[0, 3], linewidth=2, edgecolor="#00ff00", zorder=1, fill=False)
+            ax.add_artist(gt_rect)
+            plt.plot([], label='gt', color='#00ff00')
 
-        rect = plt.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=3, edgecolor="#ff0000", zorder=1, fill=False)
-        ax.add_patch(rect)
+        target_rect = patches.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#ff0000", zorder=1, fill=False)
+        ax.add_artist(target_rect)
+        plt.plot([], label='target', color='#ff0000')
 
         ######################
+        if perform_refinement and use_lin_reg:
+            linreg_rect = patches.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#0f000f", zorder=1, fill=False)
+            ax.add_artist(linreg_rect)
+            plt.plot([], label='linreg', color='#0f000f')
+
         if use_regnet:
-            regnet_rect = plt.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#0000ff", zorder=1, fill=False)
-            ax.add_patch(regnet_rect)
+            regnet_rect = patches.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#0000ff", zorder=1, fill=False)
+            ax.add_artist(regnet_rect)
+            if perform_refinement:
+                plt.plot([], label='regnet_ref', color='#0000ff')
+            else:
+                plt.plot([], label='regnet_trk', color='#0000ff')
         ######################
 
         ######################
@@ -425,6 +453,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
         if display:
             plt.pause(.01)
+            plt.legend()
             plt.draw()
         if savefig:
             fig.savefig(os.path.join(savefig_dir, '0000.jpg'), dpi=dpi)
@@ -468,6 +497,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
         # Estimate target bbox
         samples = gen_samples(sample_generator, target_bbox, opts['n_samples'])
+        # for sample in samples:
+        #     print("iou: %.5f" % overlap_ratio(target_bbox, sample))
         sample_scores = forward_samples(model, image, samples, out_layer='fc6')
         top_scores, top_idx = sample_scores[:, 1].topk(5)
         top_idx = top_idx.cpu().numpy()
@@ -536,6 +567,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 #     print('opencv model ', cv_string, ' failed at frame ', i, ' after init')
         ##############################################################
 
+        # target_score = 1 ################# hack for debug #################
         success = target_score > opts['success_thr']
 
         # Expand search area at failure
@@ -549,16 +581,27 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         # instead it "refines" previous regnet result, so it chains back to init_bbox
         if use_regnet:
             # prepare input for refinement network
-            res_regnet_feats_BB = forward_samples(model, image, np.array([result_regnet_bb[i - 1]]))
+            if success and perform_refinement:
+                bb_to_refine = samples[top_idx]
+            else:
+                bb_to_refine = np.array([result_regnet_bb[i - 1]])
+            res_regnet_feats_BB = forward_samples(model, image, bb_to_refine)
             feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
-            result_regnet_bb_std = np.array(result_regnet_bb[i - 1])
-            img_size_std = opts['img_size']
-            result_regnet_bb_std[0] = result_regnet_bb[i - 1, 0] * img_size_std / image.size[0]
-            result_regnet_bb_std[2] = result_regnet_bb[i - 1, 2] * img_size_std / image.size[0]
-            result_regnet_bb_std[1] = result_regnet_bb[i - 1, 1] * img_size_std / image.size[1]
-            result_regnet_bb_std[3] = result_regnet_bb[i - 1, 3] * img_size_std / image.size[1]
 
-            bb_fc_input = torch.cat((res_regnet_feats_BB, feats_full_frame, torch.Tensor(np.array([result_regnet_bb_std]))), dim=1)
+            # result_regnet_bb_std = np.array(result_regnet_bb[i - 1])
+            result_regnet_bb_std = bb_to_refine
+            img_size_std = opts['img_size']
+            result_regnet_bb_std[:, 0] = bb_to_refine[:, 0] * img_size_std / image.size[0]
+            result_regnet_bb_std[:, 2] = bb_to_refine[:, 2] * img_size_std / image.size[0]
+            result_regnet_bb_std[:, 1] = bb_to_refine[:, 1] * img_size_std / image.size[1]
+            result_regnet_bb_std[:, 3] = bb_to_refine[:, 3] * img_size_std / image.size[1]
+
+            # result_regnet_bb_std_as_tensor = torch.Tensor(np.array([result_regnet_bb_std]))
+            result_regnet_bb_std_as_tensor = torch.Tensor(result_regnet_bb_std)
+            if opts['use_gpu']:
+                result_regnet_bb_std_as_tensor = result_regnet_bb_std_as_tensor.cuda()
+
+            bb_fc_input = torch.cat((res_regnet_feats_BB, feats_full_frame.expand(res_regnet_feats_BB.shape), result_regnet_bb_std_as_tensor), dim=1)
 
             if opts['use_gpu']:
                 bb_fc_input = bb_fc_input.to(device=device)
@@ -567,10 +610,13 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             with torch.no_grad():
                 result_regnet_bb_refined_std = bb_fc_model(bb_fc_input)
             if translate_mode:
-                result_regnet_bb_refined_std += bb_fc_input[0, -4:]
+                result_regnet_bb_refined_std += bb_fc_input[:, -4:]
+
+            # averaging the refinement results
+            result_regnet_bb_refined_std = result_regnet_bb_refined_std.mean(dim=0)
 
             # cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
-            result_regnet_bb_refined_std = result_regnet_bb_refined_std.numpy()
+            # result_regnet_bb_refined_std = result_regnet_bb_refined_std.numpy()
 
             # re-scale refined BB back to frame proportions
             result_regnet_bb_refined = result_regnet_bb_refined_std
@@ -579,12 +625,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             result_regnet_bb_refined[1] = result_regnet_bb_refined_std[1] * image.size[1] / img_size_std
             result_regnet_bb_refined[3] = result_regnet_bb_refined_std[3] * image.size[1] / img_size_std
 
-            bbregnet_bbox = np.array(result_regnet_bb_refined)
+            if opts['use_gpu']:
+                bbregnet_bbox = np.array(result_regnet_bb_refined.cpu())
+            else:
+                bbregnet_bbox = np.array(result_regnet_bb_refined)
         ###################################################
 
         # Bbox regression
         if success:
-            if perform_refinement:
+            if perform_refinement and use_lin_reg:
                 bbreg_samples = samples[top_idx]
                 bbreg_feats = forward_samples(model, image, bbreg_samples)
                 bbreg_samples = bbreg.predict(bbreg_feats, bbreg_samples)
@@ -595,7 +644,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         # Copy previous result at failure
         if not success:
             target_bbox = result[i - 1]
-            if perform_refinement:
+            if perform_refinement and use_lin_reg:
                 bbreg_bbox = result_bb[i - 1]
             else:
                 bbreg_bbox = target_bbox
@@ -631,10 +680,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                                 gt_rect.set_width(np.nan)
                                 gt_rect.set_height(np.nan)
 
-                        rect.set_xy(result_bb[i, :2])
-                        rect.set_width(result_bb[i, 2])
-                        rect.set_height(result_bb[i, 3])
+                        target_rect.set_xy(result[i, :2])
+                        target_rect.set_width(result[i, 2])
+                        target_rect.set_height(result[i, 3])
 
+                        if perform_refinement and use_lin_reg:
+                            linreg_rect.set_xy(result_bb[i, :2])
+                            linreg_rect.set_width(result_bb[i, 2])
+                            linreg_rect.set_height(result_bb[i, 3])
                         ######################################################
                         if use_regnet:
                             regnet_rect.set_xy(result_regnet_bb[i, :2])
@@ -756,9 +809,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     gt_rect.set_width(np.nan)
                     gt_rect.set_height(np.nan)
 
-            rect.set_xy(result_bb[i, :2])
-            rect.set_width(result_bb[i, 2])
-            rect.set_height(result_bb[i, 3])
+            target_rect.set_xy(result[i, :2])
+            target_rect.set_width(result[i, 2])
+            target_rect.set_height(result[i, 3])
+
+            if perform_refinement and use_lin_reg:
+                linreg_rect.set_xy(result_bb[i, :2])
+                linreg_rect.set_width(result_bb[i, 2])
+                linreg_rect.set_height(result_bb[i, 3])
 
             ######################################################
             if use_regnet:
@@ -777,8 +835,20 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             #########################################
 
             if display:
+
+                if gt is not None:
+                    if i < gt.shape[0]:
+                        target_iou = overlap_ratio(result[i], gt[i])[0]
+                        str = 'IoU | target: %.3f' % target_iou
+                        if perform_refinement and use_lin_reg:
+                            linreg_iou = overlap_ratio(result_bb[i], gt[i])[0]
+                            str = str + ' | linreg: %.3f' % linreg_iou
+                        if use_regnet:
+                            regnet_iou = overlap_ratio(result_regnet_bb[i], gt[i])[0]
+                            str = str + ' | regnet: %.3f' % regnet_iou
+                        plt.xlabel(str)
                 plt.pause(.01)
-                plt.draw()
+                # plt.draw()
             if savefig:
                 fig.savefig(os.path.join(savefig_dir, '%04d.jpg' % (i)), dpi=dpi)
 
@@ -894,7 +964,7 @@ if __name__ == "__main__":
 
             tracking_start = time.time()
             print('')
-            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index] + ' sequence ' + sequence)
+            print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence)
 
             # each run is random, so we need to average before comparing
             # each iteration starts from the finish of the offline training
@@ -976,7 +1046,7 @@ if __name__ == "__main__":
             json.dump(res, open(result_fullpath, 'w'), indent=2)
 
             tracking_time = time.time() - tracking_start
-            print('tracking: model ' + models_strings[model_index] + ' loss ' + losses_strings[loss_index] + ' sequence ' + sequence + ' - elapsed %.3f' % (tracking_time))
+            print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence + ' | elapsed %.3f' % (tracking_time))
 
         tracking_time = time.time() - tracking_started
         print('finished %d losses x %d models x %d sequences - elapsed %d' % (len(loss_indices_for_tracking), len(models_indices_for_tracking), len(sequence_list), tracking_time))

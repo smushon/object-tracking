@@ -26,7 +26,10 @@ def prin_gen_config(args):
         img_list.sort()
         img_list = [os.path.join(img_dir, x) for x in img_list]
 
-        gt = np.loadtxt(gt_path, delimiter=',')
+        try:
+            gt = np.loadtxt(gt_path, delimiter=',')
+        except:
+            gt = np.loadtxt(gt_path)  # delimeter is white spaces
         if gt.shape[1] == 5:
             gt = gt[:, :-1]
         init_bbox = gt[0]

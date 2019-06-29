@@ -39,7 +39,11 @@ class PosRegionDataset(data.Dataset):
         self.pointer = 0
 
         image = Image.open(self.img_list[0]).convert('RGB')
-        self.pos_generator = SampleGenerator('gaussian', image.size, 0.1, 1.2, 1.1, True)
+        # self.pos_generator = SampleGenerator('gaussian', image.size, 0.1, 1.2, 1.1, True)
+
+        # I choose same parameters as tracker sample_generator
+        # pos_generator and neg_generator have different parameters, the whole concept starting to seem wierd
+        self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.6, scale_f=1.05, aspect_f=None, valid=True)
 
     def __iter__(self):
         return self
@@ -64,7 +68,8 @@ class PosRegionDataset(data.Dataset):
             image = np.asarray(image)
 
             n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
-            pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
+            # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
+            pos_examples = gen_samples(self.pos_generator, bbox, n_pos)
 
             pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
 

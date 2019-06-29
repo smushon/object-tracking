@@ -53,8 +53,12 @@ def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['moment
     optimizer = optim.SGD(param_list, lr=lr, momentum=momentum, weight_decay=w_decay)
     return optimizer
 
-num_fewer_seq = 5
-def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mode=True, direct_loss=True, fewer_sequences = False, dont_save = False):
+
+num_fewer_seq = 10
+def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=True, direct_loss=True, fewer_sequences=False, dont_save=False, saved_state=None, first_cycle=0, fixed_learning_rate=False):
+
+    # use_gpu = opts['use_gpu']
+    img_size_std = opts['img_size']
 
     with open(data_path, 'rb') as fp:
         data = pickle.load(fp)
@@ -64,6 +68,7 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
         K = min(len(data), num_fewer_seq)
     else:
         K = len(data)
+
     dataset = [None] * K
     seqnames = [None] * K
     for k, seqname in enumerate(data):
@@ -71,27 +76,30 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
         img_list = data[seqname]['images']
         gt = data[seqname]['gt']  # gt is a ndarray of rectangles
         img_dir = os.path.join(img_home, seqname)
+        # every sequence gets the frames order randomly permutated
+        # this also happens during training every time frame are exhausted
         dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts)
         # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
         if fewer_sequences and (k + 1 == K):
             break
 
-    # use_gpu = opts['use_gpu']
-    img_size_std = opts['img_size']
-
     # Init bb refeinement model #
     regnet_model_path = '../models/regnet.pth'
-    if force_init_regnet:
-        regnet_model = RegNet(translate_mode=translate_mode)
+    if init_regnet or not os.path.isfile(regnet_model_path):
+        regnet_model = RegNet(translate_mode=translate_mode, state=None)
         best_prec = 0.0
         last_training_cycle_idx = -1
-    else:
-        state = torch.load(regnet_model_path)
-        regnet_model = RegNet(translate_mode=translate_mode, model_path=regnet_model_path)
+        loss_graphs = np.array([])
+    else:  # load regnet from saved state
+        if saved_state is not None:
+            state = saved_state
+        else:
+            state = torch.load(regnet_model_path)
+        regnet_model = RegNet(translate_mode=translate_mode, state=state)
         # regnet_model.load_state_dict(state['RegNet_layers'])  # done via init function instead
         if 'best_prec' in state.keys():
             best_prec = state['best_prec']
-            print("  starting precision = %.4f" % best_prec)
+            print("starting precision = %.5f" % best_prec)
         else:
             best_prec = 0.0
         if 'translate_mode' in state.keys():
@@ -100,6 +108,10 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
             last_training_cycle_idx = state['last_training_cycle_idx']
         else:
             last_training_cycle_idx = 49
+        if 'loss_graphs' in state.keys():
+            loss_graphs = state['loss_graphs']
+        else:
+            loss_graphs = np.array([])
     # for param in regnet_model.parameters():
     #     print(param.data)
     regnet_model.train()
@@ -114,17 +126,28 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
     RefinementLoss = nn.MSELoss()
     # RefinementLoss = nn.L1Loss()
     optimizer = optim.Adam(regnet_model.parameters(), lr=lr)
+    lr_marks = [[0.0, 0.93], [0.9, 0.96], [0.94, 1.0]]
+    for idx in range(len(lr_marks)):
+        if (best_prec >= lr_marks[idx][0]) and (best_prec <= lr_marks[idx][1]):
+            lr_idx = idx
+            highest_lr_idx = idx
+            break
+        else:
+            if not fixed_learning_rate:
+                for g in optimizer.param_groups:
+                    g['lr'] = g['lr']*(2*(idx+1))
     regnet_model.zero_grad()
 
-    precision_history = np.zeros((K + 1, opts['n_cycles']))
+    precision_history = np.zeros((K + 1, opts['n_cycles'] - first_cycle))
     avg_fig_num = 1
     top_fig_num = 2
     bottom_fig_num = 3
     med_fig_num = 4
     # cycle <> epoch, because each cycle we cycle through all sequences, but work only on a batch of frames from each
-    for i in range(opts['n_cycles']):
+    best_cycle = first_cycle - 1
+    for i in range(first_cycle, opts['n_cycles']):
         print('')
-        cyc_num = i + (last_training_cycle_idx+1)
+        cyc_num = (i-first_cycle) + (last_training_cycle_idx+1)
         print("==== Start Cycle %d ====" % (cyc_num))
         k_list = np.random.permutation(K)  # reorder training sequences each epoch
         curr_cycle_prec_per_seq = np.zeros(K)
@@ -139,6 +162,7 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
             pos_regions, pos_bbs, num_example_list, image_list, gt_bbox_list = dataset[k].next()
             idx = 0
             sum_ious = 0
+            sum_sample_iou = 0
             num_ious = 0
             total_loss = 0
             num_loss_steps = 0
@@ -189,13 +213,16 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
                     #     net_input = net_input.cuda()
 
                     bb_refined_std = regnet_model(net_input)
-
+                    bb_refined_std = bb_refined_std[0,:]
                     if translate_mode:
-                        bb_refined_std += gt_bb_std_as_tensor
+                        bb_refined_std += bb_std_as_tensor[0,:]
 
                     # iou_score = overlap_ratio(bb_refined, gt_bb)[0]
                     iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std_as_tensor)
                     sum_ious += iou_score.item()
+                    sample_iou = torch_overlap_ratio(bb_std_as_tensor[0,:], gt_bb_std_as_tensor)
+                    # print("sample iou: %.5f" % sample_iou.item())
+                    sum_sample_iou += sample_iou.item()
 
                     if direct_loss:
                         # loss = RefinementLoss(bb_refined_std, gt_bb_std_as_tensor)
@@ -258,9 +285,14 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
 
                 idx += num_examples
 
+            if num_ious == 0:
+                print("skipped")
+                # problematic - this will skew cycle avergae precision calculation
+                continue
+
             # we want SGD so we update grads only after batch has ended
-            if not num_loss_steps == num_ious:
-                raise Exception('sanity failed: loss_steps = %d, num_iou = %d' % (num_loss_steps, num_ious))
+            # if not num_loss_steps == num_ious:
+            #     raise Exception('sanity failed: loss_steps = %d, num_iou = %d' % (num_loss_steps, num_ious))
             total_loss = total_loss / num_ious
             if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
                 total_loss.backward()
@@ -269,7 +301,8 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
             regnet_model.zero_grad()
 
             curr_cycle_prec_per_seq[k] = sum_ious / num_ious
-            precision_history[k, i] = sum_ious / num_ious
+            curr_cycle_seq_sample_iou = sum_sample_iou / num_ious
+            precision_history[k, i - first_cycle] = sum_ious / num_ious
             toc = time.time() - tic  # time it took to train over current sequqnce
 
             # displaying stats for current sequence
@@ -279,37 +312,74 @@ def train_regnet(md_model_path, force_init_regnet=False, lr=0.001, translate_mod
                     total_loss = total_loss.data
                 else:
                     total_loss = total_loss.data[0]  # what ???????????????????????????????????????????
-            print("Cycle %d, [iter %d/%d] (seq %2d - %-20s), Loss %.5f, IoU %.4f, Time %.3f" % \
-                      (cyc_num, j, K, k, seqnames[k], total_loss, curr_cycle_prec_per_seq[k], toc))
+
+            print("Cycle %d, [iter %d/%d] (seq %2d - %-20s), Loss %.5f, IoU %.5f --> %.5f, Time %.3f" % \
+                      (cyc_num, j, K-1, k, seqnames[k], total_loss, curr_cycle_seq_sample_iou, curr_cycle_prec_per_seq[k], toc))
 
         cur_prec = curr_cycle_prec_per_seq.mean()  # precision of this epoch
-        precision_history[K, i] = curr_cycle_prec_per_seq.mean()
+        if cur_prec < 0.00001:
+            print("low precision, restarting")
+            return False, saved_state, i
+        precision_history[K, i - first_cycle] = curr_cycle_prec_per_seq.mean()
+        # precision_history[K + 1, i - first_cycle] = curr_cycle_prec_per_seq[np.argsort(curr_cycle_prec_per_seq)[-(K-5):]].mean()
+
         plt.figure(avg_fig_num)
-        plt.plot(np.arange(i+1) + last_training_cycle_idx + 1,precision_history[K, :i+1])
+        plt.clf()
+        plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), last_training_cycle_idx + 1), loss_graphs)  # saved graphs
+        plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K, :i - first_cycle + 1])  # average all iou
+        # plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K + 1, :i - first_cycle + 1])  # average top ious
+        if not fixed_learning_rate:
+            for idx in range(len(lr_marks)):  # plot lr change grid
+                x = lr_marks[idx][1] * np.ones(i - first_cycle + 1 + len(loss_graphs))
+                plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), i - first_cycle + 1 + last_training_cycle_idx + 1), x, 'r--')
+                x = lr_marks[idx][0] * np.ones(i - first_cycle + 1 + len(loss_graphs))
+                plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), i - first_cycle + 1 + last_training_cycle_idx + 1), x, 'b--')
+                # x = lr_marks[idx][0] * np.ones(i + 1)
+                # plt.plot(x, 'b--')
+
         plt.ylabel('average sequence precision (IoU)')
         plt.xlabel('cycle')
         plt.pause(.01)
         plt.draw()
         plt.show(block=False)
-        print("Mean IoU: %.3f" % (cur_prec))
+        print("average IoU, this cycle: %.5f" % (cur_prec))
+        print("average IoU, best of all cycles: %.5f" % (best_prec))
+
+        if cur_prec > lr_marks[lr_idx][1]:
+            if not fixed_learning_rate:
+                for g in optimizer.param_groups:
+                    g['lr'] = g['lr']/(2*(lr_idx+1))
+            lr_idx = min(lr_idx + 1, len(lr_marks) - 1)  # redundant, lr_marks[-1][1] must be 1.0
+            highest_lr_idx = lr_idx
+        if cur_prec < lr_marks[lr_idx][0]:
+            if not fixed_learning_rate:
+                for g in optimizer.param_groups:
+                    g['lr'] = g['lr']*(2*(lr_idx+1))
+            lr_idx = max(lr_idx - 1, 0)  # redundant, lr_marks[0][0] must be 0.0
+            if lr_idx < highest_lr_idx - 1:  # identify a large fall in precision
+                print("too large drop in precision, restarting from last best spot")
+                return False, saved_state, best_cycle+1
 
         if cur_prec > best_prec:
             best_prec = cur_prec
+            best_cycle = i
+            if torch.cuda.is_available():
+                regnet_model = regnet_model.cpu()
+            saved_state = {
+                'RegNet_layers': regnet_model.layers.state_dict(),
+                'best_prec': cur_prec,
+                'translate_mode': translate_mode,
+                'last_training_cycle_idx': cyc_num,
+                'loss_graphs': np.concatenate((loss_graphs,precision_history[K, :i - first_cycle + 1]))
+            }
             if not dont_save:
-                if torch.cuda.is_available():
-                    regnet_model = regnet_model.cpu()
-                states = {
-                    'RegNet_layers': regnet_model.layers.state_dict(),
-                    'best_prec': cur_prec,
-                    'translate_mode': translate_mode,
-                    'last_training_cycle_idx': cyc_num
-                }
                 print("Save regnet_model to %s" % regnet_model_path)
-                torch.save(states, regnet_model_path)
-                if torch.cuda.is_available():
-                    regnet_model = regnet_model.cuda()
+                torch.save(saved_state, regnet_model_path)
+            if torch.cuda.is_available():
+                regnet_model = regnet_model.cuda()
 
     print("best precision: %.3f" % (best_prec))
+    return True, saved_state, i
 
 
 def train_mdnet():
@@ -486,11 +556,12 @@ if __name__ == "__main__":
     parser.add_argument('-rg', '--train_regnet', action='store_true')  # defaut: don't traing regnet
     parser.add_argument('-tm', '--trained_mdnet', action='store_true')  # default: use original mdnet weights (for feature extraction)
     parser.add_argument('-ir', '--init_regnet', action='store_false')  # default: init regnet (else - cont saved state)
-    parser.add_argument('-lr', '--learning_rate', default=0.001, type=float, help='learning rate')
+    parser.add_argument('-lr', '--learning_rate', default=0.0005, type=float, help='learning rate')  # starting lr
+    parser.add_argument('-flr', '--fixed_learning_rate', action='store_true')  # default: lr changes depending on training precision
     parser.add_argument('-ot', '--translate_mode', action='store_false')  # default: output as coord shift
     parser.add_argument('-il', '--indirect_loss', action='store_true')  # default: direct (mse) loss
-    parser.add_argument('-fs', '--fewer_sequences', action='store_true')  # default: direct (mse) loss
-    parser.add_argument('-ds', '--dont_save', action='store_true')  # default: direct (mse) loss
+    parser.add_argument('-fs', '--fewer_sequences', action='store_true')  # default: train on all dataset sequences
+    parser.add_argument('-ds', '--dont_save', action='store_true')  # default: save to fil best precision model
     args = parser.parse_args()
 
     # ------------
@@ -519,4 +590,14 @@ if __name__ == "__main__":
             print('  loss: combined')
         else:
             print('  loss: mse')
-        train_regnet(md_model_path, force_init_regnet=force_init_regnet or args.init_regnet, lr=args.learning_rate, translate_mode=args.translate_mode, direct_loss=not args.indirect_loss, fewer_sequences = args.fewer_sequences, dont_save = args.dont_save)
+
+        # sometimes learning can't pick up, get stuck in 0 at start
+        # can also happen during learning when precision suddenly crashes
+        completed = False
+        init_regnet = force_init_regnet or args.init_regnet
+        saved_state = None
+        first_cycle = 0
+        while not completed:
+            completed, saved_state, first_cycle = train_regnet(md_model_path, init_regnet=init_regnet, lr=args.learning_rate, translate_mode=args.translate_mode, direct_loss=not args.indirect_loss, fewer_sequences=args.fewer_sequences, dont_save=args.dont_save, saved_state=saved_state, first_cycle=first_cycle, fixed_learning_rate=args.fixed_learning_rate)
+            if saved_state is not None:
+                init_regnet=False  # if we're recovering, then do this from last best saved state.

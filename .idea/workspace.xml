@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="BookmarkManager">
-    <bookmark url="file://$PROJECT_DIR$/pretrain/train_mdnet.py" line="484" mnemonic="9" />
+    <bookmark url="file://$PROJECT_DIR$/pretrain/train_mdnet.py" line="556" mnemonic="9" />
   </component>
   <component name="ChangeListManager">
     <list default="true" id="47d5ed6e-7792-4605-b49a-6838d495418f" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/modules/model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pretrain/options.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/options.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pretrain/data_prov.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/data_prov.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pretrain/train_mdnet.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/train_mdnet.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tracking/options.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/options.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tracking/prin_gen_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/prin_gen_config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tracking/run_tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/run_tracker.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tracking/tracking_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/tracking_utils.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -20,13 +19,16 @@
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FavoritesManager">
+    <favorites_list name="MDNet-py3.5-fork" />
+  </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/tracking/run_tracker.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="233">
-              <caret line="1094" column="18" selection-start-line="1094" selection-start-column="8" selection-end-line="1094" selection-end-column="18" />
+            <state relative-caret-position="255">
+              <caret line="772" lean-forward="true" selection-start-line="772" selection-end-line="772" />
               <folding>
                 <element signature="e#0#18#0" expanded="true" />
               </folding>
@@ -35,19 +37,10 @@
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/matplotlib/pyplot.py">
+        <entry file="file://$PROJECT_DIR$/tracking/prin_gen_config.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="166">
-              <caret line="2807" column="4" selection-start-line="2807" selection-start-column="4" selection-end-line="2807" selection-end-column="4" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="-89">
-              <caret line="24" column="8" selection-start-line="24" selection-start-column="8" selection-end-line="24" selection-end-column="8" />
+            <state relative-caret-position="459">
+              <caret line="29" selection-start-line="29" selection-end-line="29" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -56,10 +49,10 @@
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/pretrain/options.py">
+        <entry file="file://$PROJECT_DIR$/tracking/options.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="404">
-              <caret line="62" column="31" selection-start-line="62" selection-start-column="31" selection-end-line="62" selection-end-column="31" />
+            <state relative-caret-position="340">
+              <caret line="22" column="94" selection-start-line="22" selection-start-column="94" selection-end-line="22" selection-end-column="94" />
               <folding>
                 <element signature="e#0#35#0" expanded="true" />
               </folding>
@@ -68,19 +61,25 @@
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/tracking/bbreg.py">
+        <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="51">
-              <caret line="7" column="8" selection-start-line="7" selection-start-column="8" selection-end-line="7" selection-end-column="8" />
+            <state relative-caret-position="442">
+              <caret line="32" selection-start-line="32" selection-end-line="32" />
+              <folding>
+                <element signature="e#0#9#0" expanded="true" />
+              </folding>
             </state>
           </provider>
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/scipy/misc/pilutil.py">
+        <entry file="file://$PROJECT_DIR$/modules/sample_generator.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="147">
-              <caret line="554" selection-start-line="554" selection-end-line="554" />
+            <state relative-caret-position="595">
+              <caret line="37" column="46" selection-start-line="37" selection-start-column="39" selection-end-line="37" selection-end-column="46" />
+              <folding>
+                <element signature="e#0#18#0" expanded="true" />
+              </folding>
             </state>
           </provider>
         </entry>
@@ -88,17 +87,11 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/pretrain/train_mdnet.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="138">
-              <caret line="17" column="24" selection-start-line="17" selection-start-column="7" selection-end-line="17" selection-end-column="24" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file pinned="false" current-in-tab="false">
-        <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/ntpath.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="126">
-              <caret line="75" selection-start-line="75" selection-end-line="75" />
+            <state relative-caret-position="-8381">
+              <caret line="56" column="18" selection-start-line="56" selection-start-column="18" selection-end-line="56" selection-end-column="18" />
+              <folding>
+                <element signature="e#0#15#0" expanded="true" />
+              </folding>
             </state>
           </provider>
         </entry>
@@ -106,8 +99,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/tracking/tracking_utils.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="139">
-              <caret line="17" selection-start-line="17" selection-end-line="17" />
+            <state relative-caret-position="2108">
+              <caret line="127" selection-start-line="127" selection-end-line="127" />
               <folding>
                 <element signature="e#0#35#0" expanded="true" />
               </folding>
@@ -118,8 +111,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/modules/model.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="178">
-              <caret line="116" selection-start-line="116" selection-end-line="116" />
+            <state relative-caret-position="323">
+              <caret line="329" lean-forward="true" selection-start-line="329" selection-end-line="329" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -138,36 +131,36 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>cv_refine_success</find>
-      <find>bb_fc_input</find>
-      <find>target_bbox</find>
-      <find>chain</find>
+      <find>64</find>
       <find>regne</find>
-      <find>result</find>
-      <find>cv_BB</find>
-      <find>feats_BB</find>
-      <find>train(</find>
-      <find>feats_bb</find>
-      <find>translate_mode</find>
-      <find>.load</find>
-      <find>torch.load</find>
-      <find>transla</find>
-      <find>bb_fc_model_path</find>
-      <find>model</find>
-      <find>bb_fc_model</find>
-      <find>-ir</find>
-      <find>cyc</find>
-      <find>reg</find>
-      <find>curr_cycle_prec_per_seq</find>
-      <find>plot</find>
-      <find>plt</find>
-      <find>plt.</find>
-      <find>seqnames</find>
-      <find>dataset</find>
-      <find>-10</find>
-      <find>cyc_num</find>
-      <find>plot(</find>
-      <find>enumera</find>
+      <find>use_regnet</find>
+      <find>sample_generator</find>
+      <find>result_regnet_bb</find>
+      <find>debug</find>
+      <find>input_bb</find>
+      <find>top_idx</find>
+      <find>perform_refinement</find>
+      <find>draw(</find>
+      <find>figure(1</find>
+      <find>-rg</find>
+      <find>.mean(dim</find>
+      <find>gt_bb_std_as_tensor</find>
+      <find>PosRegionDataset</find>
+      <find>bb_refined_std</find>
+      <find>total_loss</find>
+      <find>loss</find>
+      <find>forward(</find>
+      <find>gpu</find>
+      <find>trans</find>
+      <find>label</find>
+      <find>linreg</find>
+      <find>use_</find>
+      <find>regnet</find>
+      <find>bbregnet_bbox</find>
+      <find>lr_idx</find>
+      <find>g['lr']</find>
+      <find>001</find>
+      <find>fewer</find>
     </findStrings>
     <replaceStrings>
       <replace>pretrain_opts</replace>
@@ -176,6 +169,7 @@
     </replaceStrings>
     <dirStrings>
       <dir>C:\Users\smush\OneDrive\Documents\GitHub\MDNet-py3.5-fork</dir>
+      <dir>C:\Users\smush\OneDrive\Documents\GitHub\MDNet-py3.5-fork\tracking</dir>
     </dirStrings>
   </component>
   <component name="Git.Settings">
@@ -188,21 +182,22 @@
         <option value="$PROJECT_DIR$/pretrain/prepro_data.py" />
         <option value="$PROJECT_DIR$/modules/FocalLoss.py" />
         <option value="$PROJECT_DIR$/modules/utils.py" />
-        <option value="$PROJECT_DIR$/pretrain/data_prov.py" />
-        <option value="$PROJECT_DIR$/modules/model.py" />
         <option value="$PROJECT_DIR$/tracking/tracking_utils.py" />
+        <option value="$PROJECT_DIR$/pretrain/options.py" />
+        <option value="$PROJECT_DIR$/modules/sample_generator.py" />
+        <option value="$PROJECT_DIR$/pretrain/data_prov.py" />
         <option value="$PROJECT_DIR$/tracking/prin_gen_config.py" />
         <option value="$PROJECT_DIR$/tracking/options.py" />
-        <option value="$PROJECT_DIR$/pretrain/options.py" />
+        <option value="$PROJECT_DIR$/modules/model.py" />
         <option value="$PROJECT_DIR$/tracking/run_tracker.py" />
         <option value="$PROJECT_DIR$/pretrain/train_mdnet.py" />
       </list>
     </option>
   </component>
   <component name="ProjectFrameBounds" extendedState="6">
-    <option name="x" value="-10" />
-    <option name="width" value="980" />
-    <option name="height" value="1040" />
+    <option name="x" value="-9" />
+    <option name="width" value="978" />
+    <option name="height" value="1039" />
   </component>
   <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
   <component name="ProjectView">
@@ -321,7 +316,7 @@
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/pretrain/train_mdnet.py" />
-      <option name="PARAMETERS" value="-rg -fs -ds" />
+      <option name="PARAMETERS" value="-rg -ir" />
       <option name="SHOW_COMMAND_LINE" value="false" />
       <option name="EMULATE_TERMINAL" value="false" />
       <option name="MODULE_MODE" value="false" />
@@ -358,20 +353,20 @@
     <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
     <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.18364611" />
+      <window_info content_ui="combo" id="Project" order="0" sideWeight="0.49894738" visible="true" weight="0.18900804" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
-      <window_info id="Favorites" order="2" side_tool="true" />
+      <window_info id="Favorites" order="2" sideWeight="0.5010526" side_tool="true" weight="0.18632708" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="bottom" id="Find" order="1" sideWeight="0.49932975" weight="0.121640734" />
-      <window_info active="true" anchor="bottom" id="Run" order="2" sideWeight="0.49798927" visible="true" weight="0.29985857" />
-      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.5549598" weight="0.43140027" />
+      <window_info active="true" anchor="bottom" id="Run" order="2" sideWeight="0.652815" visible="true" weight="0.34512022" />
+      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.6816354" weight="0.37765205" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="bottom" id="TODO" order="6" />
-      <window_info anchor="bottom" id="Version Control" order="7" />
-      <window_info anchor="bottom" id="Event Log" order="8" sideWeight="0.5073727" side_tool="true" weight="0.21499293" />
+      <window_info anchor="bottom" id="Version Control" order="7" sideWeight="0.49932975" weight="0.32956153" />
+      <window_info anchor="bottom" id="Event Log" order="8" sideWeight="0.347185" side_tool="true" visible="true" weight="0.34512022" />
       <window_info anchor="bottom" id="Terminal" order="9" sideWeight="0.49932975" weight="0.281471" />
-      <window_info anchor="bottom" id="Python Console" order="10" sideWeight="0.49262735" weight="0.2956153" />
+      <window_info anchor="bottom" id="Python Console" order="10" sideWeight="0.68029493" weight="0.35643566" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
       <window_info anchor="right" id="Ant Build" order="1" weight="0.25" />
       <window_info anchor="right" content_ui="combo" id="Hierarchy" order="2" weight="0.25" />
@@ -395,13 +390,63 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tracking/run_tracker.py</url>
-          <line>504</line>
+          <line>535</line>
           <option name="timeStamp" value="216" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>290</line>
-          <option name="timeStamp" value="228" />
+          <line>351</line>
+          <option name="timeStamp" value="234" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
+          <line>360</line>
+          <option name="timeStamp" value="238" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
+          <line>321</line>
+          <option name="timeStamp" value="240" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
+          <line>601</line>
+          <option name="timeStamp" value="241" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
+          <line>372</line>
+          <option name="timeStamp" value="243" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tracking/run_tracker.py</url>
+          <line>618</line>
+          <option name="timeStamp" value="249" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tracking/run_tracker.py</url>
+          <line>849</line>
+          <option name="timeStamp" value="264" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tracking/run_tracker.py</url>
+          <line>583</line>
+          <option name="timeStamp" value="266" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/tracking/run_tracker.py</url>
+          <line>610</line>
+          <option name="timeStamp" value="267" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
+          <line>297</line>
+          <option name="timeStamp" value="271" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
+          <line>280</line>
+          <option name="timeStamp" value="272" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
@@ -449,13 +494,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/PIL/Image.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="120">
-          <caret line="559" selection-start-line="559" selection-end-line="559" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/modules/FocalLoss.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="133">
@@ -475,16 +513,6 @@
     </entry>
     <entry file="file://$APPLICATION_HOME_DIR$/helpers/typeshed/stdlib/2and3/argparse.pyi">
       <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/pretrain/prepro_data.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="34">
-          <caret line="8" selection-start-line="8" selection-end-line="18" selection-end-column="27" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
     </entry>
     <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/optim/adam.py">
       <provider selected="true" editor-type-id="text-editor">
@@ -514,53 +542,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/modules/sample_generator.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="170">
-          <caret line="13" column="35" selection-start-line="13" selection-start-column="29" selection-end-line="13" selection-end-column="35" />
-          <folding>
-            <element signature="e#0#18#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/nn/modules/module.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2231">
-          <caret line="495" selection-start-line="495" selection-end-line="495" />
-          <folding>
-            <element signature="e#0#35#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/nn/functional.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2363">
-          <caret line="2128" selection-start-line="2128" selection-end-line="2128" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/prin_gen_config.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="334">
-          <caret line="57" column="72" selection-start-line="57" selection-start-column="72" selection-end-line="57" selection-end-column="72" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/options.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="187">
-          <caret line="13" column="9" lean-forward="true" selection-start-line="13" selection-start-column="9" selection-end-line="13" selection-end-column="9" />
-          <folding>
-            <element signature="e#0#35#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/modules/utils.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="139">
@@ -578,27 +559,38 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/ntpath.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="126">
+          <caret line="75" selection-start-line="75" selection-end-line="75" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tracking/bbreg.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="51">
+          <caret line="7" column="8" selection-start-line="7" selection-start-column="8" selection-end-line="7" selection-end-column="8" />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/scipy/misc/pilutil.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="147">
+        <state relative-caret-position="9282">
           <caret line="554" selection-start-line="554" selection-end-line="554" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/tracking_utils.py">
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/matplotlib/pyplot.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="139">
-          <caret line="17" selection-start-line="17" selection-end-line="17" />
-          <folding>
-            <element signature="e#0#35#0" expanded="true" />
-          </folding>
+        <state relative-caret-position="166">
+          <caret line="2807" column="4" selection-start-line="2807" selection-start-column="4" selection-end-line="2807" selection-end-column="4" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/modules/model.py">
+    <entry file="file://$PROJECT_DIR$/pretrain/prepro_data.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="178">
-          <caret line="116" selection-start-line="116" selection-end-line="116" />
+        <state>
+          <caret line="18" column="18" lean-forward="true" selection-start-line="18" selection-start-column="18" selection-end-line="18" selection-end-column="18" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
@@ -615,41 +607,124 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/PIL/Image.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-89">
-          <caret line="24" column="8" selection-start-line="24" selection-start-column="8" selection-end-line="24" selection-end-column="8" />
+        <state relative-caret-position="171">
+          <caret line="559" selection-start-line="559" selection-end-line="559" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/nn/functional.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="300">
+          <caret line="1351" selection-start-line="1351" selection-end-line="1351" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/matplotlib/patches.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state>
+          <folding>
+            <element signature="e#0#16#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/__init__.pyi">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="187">
+          <caret line="12" column="13" lean-forward="true" selection-start-line="12" selection-start-column="13" selection-end-line="12" selection-end-column="13" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tracking/prin_gen_config.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="459">
+          <caret line="29" selection-start-line="29" selection-end-line="29" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/bbreg.py">
+    <entry file="file://$PROJECT_DIR$/tracking/options.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="51">
-          <caret line="7" column="8" selection-start-line="7" selection-start-column="8" selection-end-line="7" selection-end-column="8" />
+        <state relative-caret-position="340">
+          <caret line="22" column="94" selection-start-line="22" selection-start-column="94" selection-end-line="22" selection-end-column="94" />
+          <folding>
+            <element signature="e#0#35#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/matplotlib/pyplot.py">
+    <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="166">
-          <caret line="2807" column="4" selection-start-line="2807" selection-start-column="4" selection-end-line="2807" selection-end-column="4" />
+        <state relative-caret-position="442">
+          <caret line="32" selection-start-line="32" selection-end-line="32" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/ntpath.py">
+    <entry file="file://$PROJECT_DIR$/modules/sample_generator.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="126">
-          <caret line="75" selection-start-line="75" selection-end-line="75" />
+        <state relative-caret-position="595">
+          <caret line="37" column="46" selection-start-line="37" selection-start-column="39" selection-end-line="37" selection-end-column="46" />
+          <folding>
+            <element signature="e#0#18#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tracking/tracking_utils.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2108">
+          <caret line="127" selection-start-line="127" selection-end-line="127" />
+          <folding>
+            <element signature="e#0#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/tensor.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="146">
+          <caret line="101" selection-start-line="101" selection-end-line="101" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/nn/modules/module.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="120">
+          <caret line="39" column="24" selection-start-line="39" selection-start-column="16" selection-end-line="39" selection-end-column="24" />
+          <folding>
+            <element signature="e#0#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/autograd/__init__.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state>
+          <caret lean-forward="true" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/modules/model.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="323">
+          <caret line="329" lean-forward="true" selection-start-line="329" selection-end-line="329" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/tracking/run_tracker.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="233">
-          <caret line="1094" column="18" selection-start-line="1094" selection-start-column="8" selection-end-line="1094" selection-end-column="18" />
+        <state relative-caret-position="255">
+          <caret line="772" lean-forward="true" selection-start-line="772" selection-end-line="772" />
           <folding>
             <element signature="e#0#18#0" expanded="true" />
           </folding>
@@ -658,8 +733,11 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/pretrain/train_mdnet.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="138">
-          <caret line="17" column="24" selection-start-line="17" selection-start-column="7" selection-end-line="17" selection-end-column="24" />
+        <state relative-caret-position="-8381">
+          <caret line="56" column="18" selection-start-line="56" selection-start-column="18" selection-end-line="56" selection-end-column="18" />
+          <folding>
+            <element signature="e#0#15#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>

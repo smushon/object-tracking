@@ -20,6 +20,8 @@ else:
     # print('tracking using cpu')
     tracking_device = 'cpu'
 
+# tracking_opts['use_gpu'] = True  ###################3 hack for debug #######################
+# tracking_device = torch.device('cuda:0') ###################3 hack for debug #######################
 
 tracking_opts['model_path'] = '../models/mdnet_vot-otb.pth'
 tracking_opts['new_model_path'] = '../models/mdnet_vot-otb_new.pth'
