@@ -12,6 +12,30 @@ import tracking.options as options
 opts = options.tracking_opts
 
 
+def forward_regions(model, regions, out_layer='conv3', is_cuda=opts['use_gpu']):
+    model.eval()
+    # regions = Variable(regions)
+    if is_cuda:
+        regions = regions.cuda()
+    feat = model(regions, out_layer=out_layer)
+    feats = feat.data.clone()
+
+
+    # for i, regions in enumerate(regions):
+    #     # if regions.requires_grad:
+    #     #     print('requires grad')
+    #     regions = Variable(regions)
+    #     if is_cuda:
+    #     # if opts['use_gpu']:
+    #         regions = regions.cuda()
+    #     feat = model(regions, out_layer=out_layer)
+    #     if i == 0:
+    #         feats = feat.data.clone()
+    #     else:
+    #         feats = torch.cat((feats, feat.data.clone()), 0)
+    return feats
+
+
 def forward_samples(model, image, samples, out_layer='conv3', is_cuda=opts['use_gpu']):
     model.eval()
     extractor = RegionExtractor(image, samples, opts['img_size'], opts['padding'], opts['batch_test'])

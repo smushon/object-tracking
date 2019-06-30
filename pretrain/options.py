@@ -60,4 +60,4 @@ pretrain_opts['momentum'] = 0.9
 pretrain_opts['grad_clip'] = 10
 pretrain_opts['ft_layers'] = ['conv','fc']
 pretrain_opts['lr_mult'] = {'fc':10}
-pretrain_opts['n_cycles'] = 1000  # 50
+pretrain_opts['n_cycles'] = 5000  # 50

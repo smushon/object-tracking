@@ -126,7 +126,7 @@ else:  # minimalist - just see the code works
 
 # load_features_from_file = True  ############# hack for debug ###################33
 
-sequence_len_limit = 3
+sequence_len_limit = 10
 save_features_to_file = False
 detailed_printing = False
 

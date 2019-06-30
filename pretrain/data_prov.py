@@ -93,7 +93,8 @@ class PosRegionDataset(data.Dataset):
     def extract_regions(self, image, samples):
         regions = np.zeros((len(samples), self.crop_size, self.crop_size, 3), dtype='uint8')
         for i, sample in enumerate(samples):
-            regions[i] = crop_image(image, sample, self.crop_size, self.padding, True)
+            # tracking-time forward samples function work with valid=False...
+            regions[i] = crop_image(image, sample, self.crop_size, self.padding) #, True)
 
         regions = regions.transpose(0, 3, 1, 2)
         regions = regions.astype('float32') - 128.

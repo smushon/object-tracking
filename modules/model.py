@@ -79,15 +79,32 @@ class RegNet(torch.nn.Module):
 
         input_layer_size = 2 * 4608 + 4  # images features, crop features, BB coordinates
         hidden_layer_size = 50  # 512
+        hidden_layer2_size = 50
 
         self.translate_mode = translate_mode
         self.image_size = image_size
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, 4)))
+        # ]))
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, 4)))
+        # ]))
+
         self.layers = nn.Sequential(OrderedDict([
             ('flatten',  FlattenLayer()),
             ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
                                   nn.LeakyReLU())),
-            ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, 4)))
+            ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, hidden_layer2_size),
+                                  nn.LeakyReLU())),
+            ('fc3', nn.Sequential(nn.Linear(hidden_layer2_size, 4)))
         ]))
+
 
         # if (model_path is None) or (not os.path.isfile(model_path)):
         if (state == None) or ('RegNet_layers' not in state.keys()):
