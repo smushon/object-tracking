@@ -54,39 +54,23 @@ def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['moment
     return optimizer
 
 
-num_fewer_seq = 10
+num_fewer_seq = 30 # 10
 def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=True, direct_loss=True, fewer_sequences=False, dont_save=False, saved_state=None, first_cycle=0, fixed_learning_rate=False):
 
     # use_gpu = opts['use_gpu']
     img_size_std = opts['img_size']
 
-    with open(data_path, 'rb') as fp:
-        data = pickle.load(fp)
-
-    # K is the number of sequences (58)
-    if fewer_sequences:
-        K = min(len(data), num_fewer_seq)
-    else:
-        K = len(data)
-
-    dataset = [None] * K
-    seqnames = [None] * K
-    for k, seqname in enumerate(data):
-        seqnames[k] = seqname
-        img_list = data[seqname]['images']
-        gt = data[seqname]['gt']  # gt is a ndarray of rectangles
-        img_dir = os.path.join(img_home, seqname)
-        # every sequence gets the frames order randomly permutated
-        # this also happens during training every time frame are exhausted
-        dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts)
-        # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
-        if fewer_sequences and (k + 1 == K):
-            break
+    # ------------
 
     # Init bb refeinement model #
     regnet_model_path = '../models/regnet.pth'
+    optimizer_state_loaded = False
     if init_regnet or not os.path.isfile(regnet_model_path):
         regnet_model = RegNet(translate_mode=translate_mode, state=None)
+        regnet_model.train()
+        if torch.cuda.is_available():
+            regnet_model = regnet_model.cuda()
+        optimizer = optim.Adam(regnet_model.parameters(), lr=lr)
         best_prec = 0.0
         last_training_cycle_idx = -1
         loss_graphs = np.array([])
@@ -96,7 +80,11 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
         else:
             state = torch.load(regnet_model_path)
         regnet_model = RegNet(translate_mode=translate_mode, state=state)
-        # regnet_model.load_state_dict(state['RegNet_layers'])  # done via init function instead
+        # regnet_model.load_state_dict(state['RegNet_layers'])  # done via RegNet() init function instead
+        regnet_model.train()
+        if torch.cuda.is_available():
+            regnet_model = regnet_model.cuda()
+        optimizer = optim.Adam(regnet_model.parameters(), lr=lr)
         if 'best_prec' in state.keys():
             best_prec = state['best_prec']
             print("starting precision = %.5f" % best_prec)
@@ -112,20 +100,13 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
             loss_graphs = state['loss_graphs']
         else:
             loss_graphs = np.array([])
+        if 'optimizer' in state.keys():
+            optimizer.load_state_dict(state['optimizer'])
+            optimizer_state_loaded = True
+
     # for param in regnet_model.parameters():
     #     print(param.data)
-    regnet_model.train()
-    if torch.cuda.is_available():
-        regnet_model = regnet_model.cuda()
 
-    # Init MDNet model #
-    md_model = MDNet(md_model_path)
-    if torch.cuda.is_available():
-        md_model = md_model.cuda()
-
-    RefinementLoss = nn.MSELoss(reduction='mean')
-    # RefinementLoss = nn.L1Loss()
-    optimizer = optim.Adam(regnet_model.parameters(), lr=lr)
     cur_lr = lr
     # lr_marks = [[0.0, 0.93], [0.9, 0.96], [0.94, 1.0]]
     lr_marks = [[0.0, 0.5], [0.45, 1]]
@@ -135,10 +116,59 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
             highest_lr_idx = idx
             break
         else:
-            if not fixed_learning_rate:
+            if (not fixed_learning_rate) and (not optimizer_state_loaded):
                 for g in optimizer.param_groups:
-                    g['lr'] = g['lr']/(2*(idx+1))
-                    cur_lr =cur_lr/(2*(idx+1))
+                    g['lr'] = g['lr'] / (2 * (idx + 1))
+                    cur_lr = cur_lr / (2 * (idx + 1))
+
+    # -------------
+
+    # Init MDNet model #
+    md_model = MDNet(md_model_path)
+    if torch.cuda.is_available():
+        md_model = md_model.cuda()
+
+    # -------------
+
+    with open(data_path, 'rb') as fp:
+        data = pickle.load(fp)
+
+    # K is the number of sequences (58)
+    if fewer_sequences:
+        K = min(len(data), num_fewer_seq)
+    else:
+        K = len(data)
+
+    dataset = [None] * K
+    seqnames = [None] * K
+    frame_features = [None] * K
+    for k, seqname in enumerate(data):
+        print('preparing sequence %d' % k)
+
+        seqnames[k] = seqname
+        img_list = data[seqname]['images']
+        gt = data[seqname]['gt']  # gt is a ndarray of rectangles
+        img_dir = os.path.join(img_home, seqname)
+        # every sequence gets the frames order randomly permutated
+        # this also happens during training every time frame are exhausted
+        dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts)
+        # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
+
+        img_path_list = np.array([os.path.join(img_dir, img) for img in img_list])
+        frame_features[k] = {}
+        for img_path in img_path_list:
+            image = Image.open(img_path).convert('RGB')
+            curr_frame_features = forward_samples(md_model, image, np.array([[0, 0, image.size[0], image.size[1]]]), is_cuda=torch.cuda.is_available())
+            frame_features[k][img_path] = curr_frame_features
+        if fewer_sequences and (k + 1 == K):
+            break
+
+    # --------------
+
+    RefinementLoss = nn.MSELoss(reduction='mean')
+    # RefinementLoss = nn.L1Loss()
+    # optimizer = optim.Adam(regnet_model.parameters(), lr=lr)
+
     regnet_model.zero_grad()
 
     precision_history = np.zeros((K + 1, opts['n_cycles'] - first_cycle))
@@ -155,6 +185,8 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
         print('learning rate: %.5g' % cur_lr)
         k_list = np.random.permutation(K)  # reorder training sequences each epoch
         curr_cycle_prec_per_seq = np.zeros(K)
+        curr_cycle_seq_sample_iou = np.zeros(K)
+        toc = np.zeros(K)
 
         # we iterate over sequences
         # from each sequence we will extract the next batch of frames to train in this epoch
@@ -163,7 +195,7 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
         for j, k in enumerate(k_list):
             tic = time.time()
 
-            pos_regions, pos_bbs, num_example_list, image_list, gt_bbox_list = dataset[k].next()
+            pos_regions, pos_bbs, num_example_list, image_path_list, image_size, gt_bbox_list = dataset[k].next()
             idx = 0
             sum_ious = 0
             sum_sample_iou = 0
@@ -182,10 +214,10 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
             gt_bbox_array = np.array(gt_bbox_list)
             gt_bbox_array_std = gt_bbox_array
             # assuming all frames in given sequence have the same size
-            gt_bbox_array_std[:,0] = gt_bbox_array[:,0] * img_size_std / image_list[0].size[0]
-            gt_bbox_array_std[:,2] = gt_bbox_array[:,2] * img_size_std / image_list[0].size[0]
-            gt_bbox_array_std[:,1] = gt_bbox_array[:,1] * img_size_std / image_list[0].size[1]
-            gt_bbox_array_std[:,3] = gt_bbox_array[:,3] * img_size_std / image_list[0].size[1]
+            gt_bbox_array_std[:,0] = gt_bbox_array[:,0] * img_size_std / image_size[0]
+            gt_bbox_array_std[:,2] = gt_bbox_array[:,2] * img_size_std / image_size[0]
+            gt_bbox_array_std[:,1] = gt_bbox_array[:,1] * img_size_std / image_size[1]
+            gt_bbox_array_std[:,3] = gt_bbox_array[:,3] * img_size_std / image_size[1]
             if torch.cuda.is_available():
                 gt_bbox_std_as_tensor = torch.from_numpy(gt_bbox_array_std).float().cuda()
             else:
@@ -194,9 +226,10 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
             all_feats_bb = forward_regions(md_model, pos_regions, is_cuda=torch.cuda.is_available())
             iterator = 0
             # using forward_samples on pos_bbs called crop image with valid==False ...
-            for num_examples, frame in zip(num_example_list, image_list):
+            for num_examples, frame_path in zip(num_example_list, image_path_list):
                 # feats_bb = forward_samples(md_model, frame, pos_bbs[idx:idx + num_examples],is_cuda=torch.cuda.is_available())
-                feats_frame = forward_samples(md_model, frame, np.array([[0, 0, frame.size[0], frame.size[1]]]),is_cuda=torch.cuda.is_available())
+                # feats_frame = forward_samples(md_model, frame, np.array([[0, 0, frame.size[0], frame.size[1]]]),is_cuda=torch.cuda.is_available())
+                feats_frame = frame_features[k][frame_path]
                 if iterator == 0:
                     # all_feats_bb = feats_bb
                     all_feats_frame = feats_frame.repeat(num_examples, 1)
@@ -210,10 +243,10 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
 
             pos_bbs_std = pos_bbs
             # assuming all frames in given sequence have the same size
-            pos_bbs_std[:,0] = pos_bbs[:,0] * img_size_std / image_list[0].size[0]
-            pos_bbs_std[:,2] = pos_bbs[:,2] * img_size_std / image_list[0].size[0]
-            pos_bbs_std[:,1] = pos_bbs[:,1] * img_size_std / image_list[0].size[1]
-            pos_bbs_std[:,3] = pos_bbs[:,3] * img_size_std / image_list[0].size[1]
+            pos_bbs_std[:,0] = pos_bbs[:,0] * img_size_std / image_size[0]
+            pos_bbs_std[:,2] = pos_bbs[:,2] * img_size_std / image_size[0]
+            pos_bbs_std[:,1] = pos_bbs[:,1] * img_size_std / image_size[1]
+            pos_bbs_std[:,3] = pos_bbs[:,3] * img_size_std / image_size[1]
 
             if torch.cuda.is_available():
                 pos_bbs_std_as_tensor = torch.Tensor(pos_bbs_std).cuda()
@@ -373,9 +406,9 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
             regnet_model.zero_grad()
 
             curr_cycle_prec_per_seq[k] = sum_ious / num_ious
-            curr_cycle_seq_sample_iou = sum_sample_iou / num_ious
+            curr_cycle_seq_sample_iou[k] = sum_sample_iou / num_ious
             precision_history[k, i - first_cycle] = sum_ious / num_ious
-            toc = time.time() - tic  # time it took to train over current sequqnce
+            toc[k] = time.time() - tic  # time it took to train over current sequqnce
 
             # displaying stats for current sequence
             # reminder: we only processed a batch of frames from current sequence, not all of it
@@ -385,8 +418,8 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
                 else:
                     total_loss = total_loss.data[0]  # what ???????????????????????????????????????????
 
-            print("Cycle %d, [iter %d/%d] (seq %2d - %-20s), Loss %.5f, IoU %.5f --> %.5f, Time %.3f" % \
-                      (cyc_num, j, K-1, k, seqnames[k], total_loss, curr_cycle_seq_sample_iou, curr_cycle_prec_per_seq[k], toc))
+            print("Cycle %d (%d), [iter %d/%d] (seq %2d - %-20s), Loss %.5f, IoU %.5f --> %.5f, Time %.3f" % \
+                      (i, cyc_num, j, K-1, k, seqnames[k], total_loss, curr_cycle_seq_sample_iou[k], curr_cycle_prec_per_seq[k], toc[k]))
 
         cur_prec = curr_cycle_prec_per_seq.mean()  # precision of this epoch
         if cur_prec < 0.00001:
@@ -414,8 +447,10 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
         plt.pause(.01)
         plt.draw()
         plt.show(block=False)
-        print("average IoU, this cycle: %.5f" % (cur_prec))
-        print("average IoU, best of all cycles: %.5f" % (best_prec))
+        print("Curr IoU: %.5f --> %.5f" % (curr_cycle_seq_sample_iou.mean(), cur_prec))
+        print("Best IoU: %.5f" % (best_prec))
+        print('median time per sequence: %.3f' % np.median(toc))
+        print('expected time per cycle: %.3f' % (np.median(toc)*K))
 
         if cur_prec > lr_marks[lr_idx][1]:
             if not fixed_learning_rate:
@@ -444,7 +479,8 @@ def train_regnet(md_model_path, init_regnet=False, lr=0.0001, translate_mode=Tru
                 'best_prec': cur_prec,
                 'translate_mode': translate_mode,
                 'last_training_cycle_idx': cyc_num,
-                'loss_graphs': np.concatenate((loss_graphs,precision_history[K, :i - first_cycle + 1]))
+                'loss_graphs': np.concatenate((loss_graphs,precision_history[K, :i - first_cycle + 1])),
+                'optimizer': optimizer.state_dict()
             }
             if not dont_save:
                 print("Save regnet_model to %s" % regnet_model_path)
@@ -630,7 +666,7 @@ if __name__ == "__main__":
     parser.add_argument('-rg', '--train_regnet', action='store_true')  # defaut: don't traing regnet
     parser.add_argument('-tm', '--trained_mdnet', action='store_true')  # default: use original mdnet weights (for feature extraction)
     parser.add_argument('-ir', '--init_regnet', action='store_false')  # default: init regnet (else - cont saved state)
-    parser.add_argument('-lr', '--learning_rate', default=0.0001, type=float, help='learning rate')  # starting lr
+    parser.add_argument('-lr', '--learning_rate', default=0.002, type=float, help='learning rate')  # starting lr
     parser.add_argument('-flr', '--fixed_learning_rate', action='store_true')  # default: lr changes depending on training precision
     parser.add_argument('-ot', '--translate_mode', action='store_false')  # default: output as coord shift
     parser.add_argument('-il', '--indirect_loss', action='store_true')  # default: direct (mse) loss

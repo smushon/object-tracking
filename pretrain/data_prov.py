@@ -59,12 +59,16 @@ class PosRegionDataset(data.Dataset):
 
         pos_regions = np.empty((0, 3, self.crop_size, self.crop_size))
         pos_bbs = np.empty((0,4))
-        image_obj_list = []
+        # image_obj_list = []
+        image_path_list = []
         gt_bbox_list = []
         num_example_list = []
         for i, (img_path, bbox) in enumerate(zip(self.img_list[idx], self.gt[idx])):
+            image_path_list.append(img_path)
             image = Image.open(img_path).convert('RGB')
-            image_obj_list.append(image)
+            if i==0:
+                image_size = image.size
+            # image_obj_list.append(image)
             image = np.asarray(image)
 
             n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
@@ -86,7 +90,7 @@ class PosRegionDataset(data.Dataset):
         #   pos_regions - crop of images, multiple per image
         #   pos_bbs - coordinates bounding boxes, multiple per image
         #   num_example_list - how many samples per image
-        return pos_regions, pos_bbs, num_example_list, image_obj_list, gt_bbox_list
+        return pos_regions, pos_bbs, num_example_list, image_path_list, image_size, gt_bbox_list
 
     next = __next__
 
