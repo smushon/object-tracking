@@ -22,7 +22,7 @@ class FCDataset(data.Dataset):
 
 
 class PosRegionDataset(data.Dataset):
-    def __init__(self, img_dir, img_list, gt, opts, is_cuda, generate_std=False):
+    def __init__(self, img_dir, img_list, gt, opts, is_cuda, generate_std=False, pre_generate=False):
 
         self.img_list = np.array([os.path.join(img_dir, img) for img in img_list])
 
@@ -69,6 +69,33 @@ class PosRegionDataset(data.Dataset):
         else:
             self.gt_std_as_tensor = torch.from_numpy(self.gt_std_as_numpy).float()
 
+        self.pre_generate = pre_generate
+        if pre_generate:
+            pos_regions = np.empty((0, 3, self.crop_size, self.crop_size))
+            pos_bbs = np.empty((0, 4))
+            for i, (img_path, bbox) in enumerate(zip(self.img_list, self.gt)):
+                image = Image.open(img_path).convert('RGB')
+                image = np.asarray(image)
+
+                pos_examples = gen_samples(self.pos_generator, bbox, self.batch_pos)
+                pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
+                pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples, dtype='float32')), axis=0)
+
+            self.pos_regions = torch.from_numpy(pos_regions).float()
+
+            pos_bbs_std = pos_bbs
+            # assuming all frames in given sequence have the same size
+            pos_bbs_std[:,0] = pos_bbs[:,0] * self.crop_size / self.image_size[0]
+            pos_bbs_std[:,2] = pos_bbs[:,2] * self.crop_size / self.image_size[0]
+            pos_bbs_std[:,1] = pos_bbs[:,1] * self.crop_size / self.image_size[1]
+            pos_bbs_std[:,3] = pos_bbs[:,3] * self.crop_size / self.image_size[1]
+            if torch.cuda.is_available():
+                self.pos_bbs_std_as_tensor = torch.Tensor(pos_bbs_std).cuda()
+            else:
+                self.pos_bbs_std_as_tensor = torch.Tensor(pos_bbs_std)
+
+
+
     def __iter__(self):
         return self
 
@@ -81,58 +108,59 @@ class PosRegionDataset(data.Dataset):
             idx = np.concatenate((idx, self.index[:next_pointer]))
         self.pointer = next_pointer
 
-        pos_regions = np.empty((0, 3, self.crop_size, self.crop_size))
-        pos_bbs = np.empty((0,4))
-        image_path_list = []
-        # gt_bbox_list = []
-        num_example_list = []
+        if self.pre_generate:
+            return idx
+        else:
+            pos_regions = np.empty((0, 3, self.crop_size, self.crop_size))
+            pos_bbs = np.empty((0,4))
+            # image_path_list = []
+            # gt_bbox_list = []
+            num_example_list = []
 
-        if self.generate_std:
-            for i, (img_path, image_std, bbox_std) in enumerate(zip(self.img_list[idx], self.image_std_as_numpy[idx], self.gt_std_as_numpy[idx])):
-                image_path_list.append(img_path)
-                n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
+            if self.generate_std:
+                for i, (img_path, image_std, bbox_std) in enumerate(zip(self.img_list[idx], self.image_std_as_numpy[idx], self.gt_std_as_numpy[idx])):
+                    # image_path_list.append(img_path)
+                    n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
 
-                # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
-                pos_examples_std = gen_samples(self.pos_generator, bbox_std, n_pos)
-                pos_regions = np.concatenate((pos_regions, self.extract_regions(image_std, pos_examples_std)), axis=0)
-                num_example_list.append(len(pos_examples_std))
-                pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples_std, dtype='float32')), axis=0)
+                    # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
+                    pos_examples_std = gen_samples(self.pos_generator, bbox_std, n_pos)
+                    pos_regions = np.concatenate((pos_regions, self.extract_regions(image_std, pos_examples_std)), axis=0)
+                    num_example_list.append(len(pos_examples_std))
+                    pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples_std, dtype='float32')), axis=0)
 
-        if not self.generate_std:
-            for i, (img_path, bbox) in enumerate(zip(self.img_list[idx], self.gt[idx])):
-                image_path_list.append(img_path)
+            if not self.generate_std:
+                for i, (img_path, bbox) in enumerate(zip(self.img_list[idx], self.gt[idx])):
+                    # image_path_list.append(img_path)
 
-                image = Image.open(img_path).convert('RGB')
-                if i==0:
-                    image_size = image.size
-                image = np.asarray(image)
+                    image = Image.open(img_path).convert('RGB')
+                    image = np.asarray(image)
 
-                n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
+                    n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
 
-                # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
-                pos_examples = gen_samples(self.pos_generator, bbox, n_pos)
-                pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
-                num_example_list.append(len(pos_examples))
+                    # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
+                    pos_examples = gen_samples(self.pos_generator, bbox, n_pos)
+                    pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
+                    num_example_list.append(len(pos_examples))
 
-                # no need for these any more
-                # image = torch.from_numpy(image)
-                # image_list.append(image)
-                # bbox = torch.from_numpy(bbox).float()
-                # gt_bbox_list.append(bbox)
+                    # no need for these any more
+                    # image = torch.from_numpy(image)
+                    # image_list.append(image)
+                    # bbox = torch.from_numpy(bbox).float()
+                    # gt_bbox_list.append(bbox)
 
-                pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples, dtype='float32')), axis=0)
+                    pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples, dtype='float32')), axis=0)
 
-        pos_regions = torch.from_numpy(pos_regions).float()
+            pos_regions = torch.from_numpy(pos_regions).float()
 
-        # returns:
-        #   pos_regions - crop of images, multiple per image
-        #   pos_bbs - coordinates bounding boxes, multiple per image
-        #   num_example_list - how many samples per image
+            # returns:
+            #   pos_regions - crop of images, multiple per image
+            #   pos_bbs - coordinates bounding boxes, multiple per image
+            #   num_example_list - how many samples per image
 
-        # no need toreturn this
-        # self.gt_std_as_tensor[idx]
+            # no need toreturn this
+            # self.gt_std_as_tensor[idx]
 
-        return pos_regions, pos_bbs, num_example_list, image_path_list, self.image_size, idx
+            return pos_regions, pos_bbs, num_example_list, idx
 
     next = __next__
 
