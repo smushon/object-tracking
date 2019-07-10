@@ -126,7 +126,7 @@ else:  # minimalist - just see the code works
 
 # load_features_from_file = True  ############# hack for debug ###################33
 
-sequence_len_limit = 10
+sequence_len_limit = 10  # limit number of frame taken from each sequence
 save_features_to_file = False
 detailed_printing = False
 
@@ -221,6 +221,11 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         result_centers[0] = gt_centers[0]
         result_ious = np.zeros(num_gts, dtype='float64')
         result_ious[0] = 1.
+
+        result_regnet_centers = np.zeros_like(gt[:num_gts, :2])
+        result_regnet_centers[0] = gt_centers[0]
+        result_regnet_ious = np.zeros(num_gts, dtype='float64')
+        result_regnet_ious[0] = 1.
     #################
 
     # Init model
@@ -287,8 +292,10 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
         # refined_bb_dict will be used to hold the latest best guess for BB for each tracker
         refined_bb_dict = {}
+        cv_output_dict = {}
         for (string, tracker) in trackers_dict.items():
             refined_bb_dict.update({string: target_bbox})
+            cv_output_dict.update({string: [True,target_bbox]})
             # tracker.clear()
 
             # init instantiated trackers
@@ -495,20 +502,97 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         # Load image
         image = Image.open(img_list[i]).convert('RGB')
 
-        # Estimate target bbox
-        samples = gen_samples(sample_generator, target_bbox, opts['n_samples'])
-        # for sample in samples:
-        #     print("iou: %.5f" % overlap_ratio(target_bbox, sample))
-        sample_scores = forward_samples(model, image, samples, out_layer='fc6')
-        top_scores, top_idx = sample_scores[:, 1].topk(5)
-        top_idx = top_idx.cpu().numpy()
-        target_score = top_scores.mean()
-        target_bbox = samples[top_idx].mean(axis=0)
+
+        try_again = True
+        while try_again:
+            # Estimate target bbox
+            if sample_generator.get_trans_f() == opts['trans_f_expand']:
+                samples = gen_samples(sample_generator, target_bbox, 2*opts['n_samples'])
+            else:
+                samples = gen_samples(sample_generator, target_bbox, opts['n_samples'])
+            # for sample in samples:
+            #     print("iou: %.5f" % overlap_ratio(target_bbox, sample))
+            sample_scores = forward_samples(model, image, samples, out_layer='fc6')
+            top_scores, top_idx = sample_scores[:, 1].topk(5)
+            top_idx = top_idx.cpu().numpy()
+            target_score = top_scores.mean()
+            target_bbox = samples[top_idx].mean(axis=0)
+
+            if sample_generator.get_trans_f() == opts['trans_f_expand']:
+                try_again = False
+
+            # target_score = 1 ################# hack for debug #################
+            success = target_score > opts['success_thr']
+            # Expand search area at failure
+            if success:
+                sample_generator.set_trans_f(opts['trans_f'])
+                try_again = False
+            else:
+                sample_generator.set_trans_f(opts['trans_f_expand'])
+
 
         ##############################################################
         if use_opencv:
             for (cv_string, cv_tracker) in trackers_dict.items():
                 cv_success, cv_BB = cv_tracker.update(np.array(image))
+                cv_output_dict.update({cv_string: [cv_success, cv_BB]})
+        ##############################################################
+
+
+        ###########################################
+        if gt is not None:
+            if i < gt.shape[0]:
+                # identify tracking failure and abort when in VOT mode
+                if use_opencv:
+                    IoU = overlap_ratio(target_bbox, gt[i])[0]
+                    # TBD - instead calculate IoU based on opencv traker(s) !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                else:
+                    IoU = overlap_ratio(target_bbox, gt[i])[0]
+                if (IoU == 0) and init_after_loss:
+                    print('    * lost track in frame %d since init*' % (i))
+                    result_distances = scipy.spatial.distance.cdist(result_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
+                    result_regnet_distances = scipy.spatial.distance.cdist(result_regnet_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
+                    num_images_tracked = i - 1  # we don't count frame 0 and current frame (lost track)
+
+                    # display failed frame
+                    if display:
+                        im.set_data(image)
+                        if gt is not None:
+                            if i < gt.shape[0]:
+                                gt_rect.set_xy(gt[i, :2])
+                                gt_rect.set_width(gt[i, 2])
+                                gt_rect.set_height(gt[i, 3])
+                            else:
+                                gt_rect.set_xy(np.array([np.nan, np.nan]))
+                                gt_rect.set_width(np.nan)
+                                gt_rect.set_height(np.nan)
+
+                        target_rect.set_xy(result[i, :2])
+                        target_rect.set_width(result[i, 2])
+                        target_rect.set_height(result[i, 3])
+
+                        #########################################
+                        # draw raw (unrefined) cv trackers output
+                        if use_opencv:
+                            for tracker_String in tracker_strings_selected:
+                                refined_patch_dict[tracker_String].set_xy(cv_output_dict[tracker_String][1][:2])
+                                refined_patch_dict[tracker_String].set_width(cv_output_dict[tracker_String][1][2])
+                                refined_patch_dict[tracker_String].set_height(cv_output_dict[tracker_String][1][3])
+                        #########################################
+
+                        plt.pause(2)  # pause longer to observe failure
+                        plt.draw()
+
+                    return result[:i], result_bb[:i], num_images_tracked, spf_total, result_distances, result_ious[:i], result_regnet_distances, result_regnet_ious[:i], True
+        ########################################
+
+
+
+        ##############################################################
+        if use_opencv:
+            for (cv_string, cv_tracker) in trackers_dict.items():
+                cv_output = cv_output_dict[cv_string]
+                cv_success, cv_BB = cv_output[0], cv_output[1]
 
                 if cv_success:  # opencv tracker will not return a BB otherwise
                     if perform_refinement and use_regnet:
@@ -542,7 +626,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                         # if cv_BB_refined_std[2] < 2 or cv_BB_refined_std[3] < 2:  # BB too small
                         #     print('      refinement for opencv model ', cv_string, ' failed at frame ', i, ' after init')
                         #     if update_non_refined_on_fail:
-                        #         refined_bb_dict.update({tracker_String: np.array(cv_BB)})
+                        #         refined_bb_dict.update({cv_string: np.array(cv_BB)})
 
                         # re-scale refined BB back to frame proportions
                         cv_BB_refined = cv_BB_refined_std
@@ -552,14 +636,11 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                         cv_BB_refined[3] = cv_BB_refined_std[3] * image.size[1] / img_size_std
 
                         # keep refined BB for this tracker
-                        refined_bb_dict.update({tracker_String: cv_BB_refined})
+                        refined_bb_dict.update({cv_string: cv_BB_refined})
 
                         # use refined BB to re-init the opencv tracker
                         if not cv_tracker.init(np.array(image), tuple(cv_BB_refined)):
                             raise Exception('error re-init tracke per refinementr: ', cv_string)
-
-                    else:  # use opencv tracker output as BB for tracking, no refinement attempted
-                        refined_bb_dict.update({tracker_String: np.array(cv_BB)})
 
                 # nothing to do if opencv tracker fails to track
                 # we can only hope to use re-init procedure from VOT benchmark to re-init tracker that lost track
@@ -567,24 +648,16 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 #     print('opencv model ', cv_string, ' failed at frame ', i, ' after init')
         ##############################################################
 
-        # target_score = 1 ################# hack for debug #################
-        success = target_score > opts['success_thr']
-
-        # Expand search area at failure
-        if success:
-            sample_generator.set_trans_f(opts['trans_f'])
-        else:
-            sample_generator.set_trans_f(opts['trans_f_expand'])
-
         ###################################################
-        # this version does NOT refine mdnet top samples
-        # instead it "refines" previous regnet result, so it chains back to init_bbox
         if use_regnet:
             # prepare input for refinement network
-            if success and perform_refinement:
-                bb_to_refine = samples[top_idx]
+            if (success or init_after_loss) and perform_refinement:
+                if use_opencv:
+                    bb_to_refine = samples[top_idx]  # regnet will refine opencv - TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                else:
+                    bb_to_refine = samples[top_idx]  # regnet will refine mdnet best samples
             else:
-                bb_to_refine = np.array([result_regnet_bb[i - 1]])
+                bb_to_refine = np.array([result_regnet_bb[i - 1]])  # regnet will refine its previous output
             res_regnet_feats_BB = forward_samples(model, image, bb_to_refine)
             feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
 
@@ -657,64 +730,70 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             result_regnet_bb[i] = bbregnet_bbox
         ###########################################
 
-        ###########################################
-        if gt is not None:
-            if i < gt.shape[0]:
-                # identify tracking failure and abort when in VOT mode
-                IoU = overlap_ratio(result_bb[i], gt[i])[0]
-                if (IoU == 0) and init_after_loss:
-                    print('    * lost track in frame %d since init*' % (i))
-                    result_distances = scipy.spatial.distance.cdist(result_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
-                    num_images_tracked = i - 1  # we don't count frame 0 and current frame (lost track)
-
-                    # display failed frame
-                    if display:
-                        im.set_data(image)
-                        if gt is not None:
-                            if i < gt.shape[0]:
-                                gt_rect.set_xy(gt[i, :2])
-                                gt_rect.set_width(gt[i, 2])
-                                gt_rect.set_height(gt[i, 3])
-                            else:
-                                gt_rect.set_xy(np.array([np.nan, np.nan]))
-                                gt_rect.set_width(np.nan)
-                                gt_rect.set_height(np.nan)
-
-                        target_rect.set_xy(result[i, :2])
-                        target_rect.set_width(result[i, 2])
-                        target_rect.set_height(result[i, 3])
-
-                        if perform_refinement and use_lin_reg:
-                            linreg_rect.set_xy(result_bb[i, :2])
-                            linreg_rect.set_width(result_bb[i, 2])
-                            linreg_rect.set_height(result_bb[i, 3])
-                        ######################################################
-                        if use_regnet:
-                            regnet_rect.set_xy(result_regnet_bb[i, :2])
-                            regnet_rect.set_width(result_regnet_bb[i, 2])
-                            regnet_rect.set_height(result_regnet_bb[i, 3])
-                        ######################################################
-
-                        #########################################
-                        if use_opencv:
-                            for tracker_String in tracker_strings_selected:
-                                refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
-                                refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
-                                refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
-                                # draw rectangle based on refined_bb_dict[tracker_String]
-                        #########################################
-
-                        plt.pause(.01)
-                        plt.draw()
-
-                    return result[:i], result_bb[:i], num_images_tracked, spf_total, result_distances, result_ious[:i], True
-        ########################################
+        # ###########################################
+        # # previously, a tracking loss (IoU==0) check was here based in result_bb
+        # # but then I decided to base it on result (pre-refinement)
+        # if gt is not None:
+        #     if i < gt.shape[0]:
+        #         # identify tracking failure and abort when in VOT mode
+        #         IoU = overlap_ratio(result_bb[i], gt[i])[0]
+        #         if (IoU == 0) and init_after_loss:
+        #             print('    * lost track in frame %d since init*' % (i))
+        #             result_distances = scipy.spatial.distance.cdist(result_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
+        #             result_regnet_distances = scipy.spatial.distance.cdist(result_regnet_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
+        #             num_images_tracked = i - 1  # we don't count frame 0 and current frame (lost track)
+        #
+        #             # display failed frame
+        #             if display:
+        #                 im.set_data(image)
+        #                 if gt is not None:
+        #                     if i < gt.shape[0]:
+        #                         gt_rect.set_xy(gt[i, :2])
+        #                         gt_rect.set_width(gt[i, 2])
+        #                         gt_rect.set_height(gt[i, 3])
+        #                     else:
+        #                         gt_rect.set_xy(np.array([np.nan, np.nan]))
+        #                         gt_rect.set_width(np.nan)
+        #                         gt_rect.set_height(np.nan)
+        #
+        #                 target_rect.set_xy(result[i, :2])
+        #                 target_rect.set_width(result[i, 2])
+        #                 target_rect.set_height(result[i, 3])
+        #
+        #                 if perform_refinement and use_lin_reg:
+        #                     linreg_rect.set_xy(result_bb[i, :2])
+        #                     linreg_rect.set_width(result_bb[i, 2])
+        #                     linreg_rect.set_height(result_bb[i, 3])
+        #                 ######################################################
+        #                 if use_regnet:
+        #                     regnet_rect.set_xy(result_regnet_bb[i, :2])
+        #                     regnet_rect.set_width(result_regnet_bb[i, 2])
+        #                     regnet_rect.set_height(result_regnet_bb[i, 3])
+        #                 ######################################################
+        #
+        #                 #########################################
+        #                 if use_opencv:
+        #                     for tracker_String in tracker_strings_selected:
+        #                         refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
+        #                         refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
+        #                         refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
+        #                         # draw rectangle based on refined_bb_dict[tracker_String]
+        #                 #########################################
+        #
+        #                 plt.pause(2)  # pause longer to observe failure
+        #                 plt.draw()
+        #
+        #             return result[:i], result_bb[:i], num_images_tracked, spf_total, result_distances, result_ious[:i], result_regnet_distances, result_regnet_ious[:i], True
+        # ########################################
 
         #################
         if gt is not None:
             if i < gt.shape[0]:
                 result_ious[i] = IoU
                 result_centers[i] = result_bb[i, :2] + result_bb[i, 2:] / 2
+
+                result_regnet_ious[i] = overlap_ratio(result_regnet_bb[i], gt[i])[0]
+                result_regnet_centers[i] = result_regnet_bb[i, :2] + result_regnet_bb[i, 2:] / 2
         #################
 
         # Data collect
@@ -868,11 +947,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
     # result_distances = np.linalg.norm(result_centers - gt_centers, ord=2)
     result_distances = scipy.spatial.distance.cdist(result_centers, gt_centers, metric='euclidean').diagonal()
+    result_regnet_distances = scipy.spatial.distance.cdist(result_regnet_centers, gt_centers, metric='euclidean').diagonal()
     # fps = num_images / spf_total
     num_images_tracked = num_images-1  # I don't want to count initialization frame (i.e. frame 0)
     print('    main loop finished, %d frames, %d short updates' % (num_images, num_short_updates))
 
-    return result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, False
+    return result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, result_regnet_distances, result_regnet_ious, False
 
 
 if __name__ == "__main__":
@@ -977,9 +1057,10 @@ if __name__ == "__main__":
                 if init_after_loss:  # loss means loss of tracking
                     init_frame_index = 0
                     while init_frame_index < len(img_list) - 1:  # we want at least one frame for tracking after init
-                        result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(img_list[init_frame_index:], gt[init_frame_index], gt=gt[init_frame_index:], savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index], seq_name=sequence)
+                        result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, result_regnet_distances, result_regnet_ious, lost_track = run_mdnet(img_list[init_frame_index:], gt[init_frame_index], gt=gt[init_frame_index:], savefig_dir=savefig_dir, display=display, loss_index=loss_index, model_path=models_paths[model_index], seq_name=sequence)
                         if init_frame_index == 0:
                             result_ious_tot = result_ious
+                            result_regnet_ious_tot = result_regnet_ious
                             num_images_tracked_tot = num_images_tracked
                             spf_total_tot = spf_total
 
@@ -992,6 +1073,7 @@ if __name__ == "__main__":
                                 init_frame_index = len(img_list)
                         else:
                             result_ious_tot = np.concatenate((result_ious_tot, result_ious))
+                            result_regnet_ious_tot = np.concatenate((result_regnet_ious_tot, result_regnet_ious))
                             num_images_tracked_tot += num_images_tracked
                             spf_total_tot += spf_total
 
@@ -1001,31 +1083,41 @@ if __name__ == "__main__":
                             else:
                                 init_frame_index = len(img_list)
                     accuracy = np.mean(result_ious_tot)
+                    regnet_accuracy = np.mean(result_regnet_ious_tot)
                     fps = num_images_tracked_tot / spf_total_tot
-                else:
+                else:  # i.e. not init_after_loss:
                     lost_track_tot = 0
-                    result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, lost_track = run_mdnet(
+                    result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, result_regnet_distances, result_regnet_ious, lost_track = run_mdnet(
                         img_list, gt[0], gt=gt,
                         savefig_dir=savefig_dir, display=display, loss_index=loss_index,
                         model_path=models_paths[model_index], seq_name=sequence)
                     accuracy = np.mean(result_ious)
+                    regnet_accuracy = np.mean(result_regnet_ious)
                     fps = num_images_tracked / spf_total
 
-                # compute step of running average of results over current sequence
-                if not init_after_loss:
+                    # compute step of running average of results over current sequence
+                    # since we don't init after loss, it's always the same size of result arrays, so we can average
                     if avg_iter == 0:
                         result_distances_avg = result_distances
+                        result_regnet_distances_avg = result_regnet_distances
                         result_ious_avg = result_ious
+                        result_regnet_ious_avg = result_regnet_ious
+                        result_bb_avg = result_bb
                     else:
                         result_distances_avg = (result_distances_avg*avg_iter + result_distances) / (avg_iter+1)
+                        result_regnet_distances_avg = (result_regnet_distances_avg * avg_iter + result_regnet_distances) / (avg_iter + 1)
                         result_ious_avg = (result_ious_avg * avg_iter + result_ious) / (avg_iter + 1)
-                # else:
+                        result_regnet_ious_avg = (result_regnet_ious_avg * avg_iter + result_regnet_ious) / (avg_iter + 1)
+                        result_bb_avg = (result_bb_avg * avg_iter + result_bb) / (avg_iter + 1)
+
                 if avg_iter == 0:
                     failures_per_seq_avg = lost_track_tot
                     accuracy_avg = accuracy
+                    regnet_accuracy_avg = regnet_accuracy
                 else:
                     failures_per_seq_avg = (failures_per_seq_avg * avg_iter + lost_track_tot) / (avg_iter + 1)
                     accuracy_avg = (accuracy_avg * avg_iter + accuracy) / (avg_iter + 1)
+                    regnet_accuracy_avg = (regnet_accuracy_avg * avg_iter + regnet_accuracy) / (avg_iter + 1)
 
                 iteration_time = time.time() - iteration_start
                 print('  iteration time elapsed: %.3f' % (iteration_time))
@@ -1036,12 +1128,15 @@ if __name__ == "__main__":
             res['type'] = 'rect'
             res['fps'] = fps
             if not init_after_loss:
-                res['res'] = result_bb.round().tolist()  # what to save when we average ????
+                res['res'] = result_bb_avg.round().tolist()
                 res['ious'] = result_ious_avg.tolist()
+                res['regnet_ious'] = result_regnet_ious_avg.tolist()
                 res['distances'] = result_distances_avg.tolist()
+                res['regnet_distances'] = result_regnet_distances_avg.tolist()
             # else:
             res['fails_per_seq'] = failures_per_seq_avg
             res['accuracy'] = accuracy_avg
+            res['regnet_accuracy'] = regnet_accuracy_avg
             result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
             json.dump(res, open(result_fullpath, 'w'), indent=2)
 
@@ -1060,10 +1155,13 @@ if __name__ == "__main__":
             if show_average_over_sequences:
                 if display_VOT_benchmark:
                     avg_accuracy = []
+                    avg_regnet_accuracy = []
                     avg_fails = []
                 if display_OTB_benchmark:
                     avg_success_rate = np.zeros((len(sequence_list),np.arange(0, 1.01, step=0.01).size))
+                    avg_regnet_success_rate = np.zeros((len(sequence_list), np.arange(0, 1.01, step=0.01).size))
                     avg_precision = np.zeros((len(sequence_list),np.arange(0, 50.5, step=0.5).size))
+                    avg_regnet_precision = np.zeros((len(sequence_list), np.arange(0, 50.5, step=0.5).size))
 
             for seq_iter, sequence in enumerate(sequence_list):
 
@@ -1073,37 +1171,52 @@ if __name__ == "__main__":
                 if display_OTB_benchmark:
 
                     result_fullpath = os.path.join(result_path,'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-False' + '.json')
+                    if not os.path.exists(result_fullpath):
+                        print('no file named: ' + result_fullpath)
+                        continue
                     with open(result_fullpath, "r") as read_file:
                         res = json.load(read_file)
 
                     result_distances = np.asarray(res['distances'])
                     result_ious = np.asarray(res['ious'])
+                    result_regnet_distances = np.asarray(res['regnet_distances'])
+                    result_regnet_ious = np.asarray(res['regnet_ious'])
 
                     overlap_threshold = np.arange(0, 1.01, step=0.01)  # X axis
                     success_rate = np.zeros(overlap_threshold.size)
+                    regnet_success_rate = np.zeros(overlap_threshold.size)
                     for i in range(overlap_threshold.shape[0]):
                         success_rate[i] = np.sum(result_ious > overlap_threshold[i]) / result_ious.shape[0]
+                        regnet_success_rate[i] = np.sum(result_regnet_ious > overlap_threshold[i]) / result_regnet_ious.shape[0]
                     # AUC = accuracy = sum(success_rate)
 
                     location_error_threshold = np.arange(0, 50.5, step=0.5)  # X axis
                     precision = np.zeros(location_error_threshold.size)
+                    regnet_precision = np.zeros(location_error_threshold.size)
                     for i in range(location_error_threshold.shape[0]):
                         precision[i] = np.sum(result_distances < location_error_threshold[i]) / result_distances.shape[0]
+                        regnet_precision[i] = np.sum(result_regnet_distances < location_error_threshold[i]) / result_regnet_distances.shape[0]
 
                     if show_average_over_sequences:
                         avg_success_rate[seq_iter,:] = success_rate
+                        avg_regnet_success_rate[seq_iter,:] = regnet_success_rate
                         avg_precision[seq_iter,:] = precision
+                        avg_regnet_precision[seq_iter, :] = regnet_precision
                         if sequence == sequence_list[-1]:
                             avg_success_rate = avg_success_rate.mean(axis=0)
+                            avg_regnet_success_rate = avg_regnet_success_rate.mean(axis=0)
                             avg_precision = avg_precision.mean(axis=0)
+                            avg_regnet_precision = avg_regnet_precision.mean(axis=0)
                             plt.figure(11)
                             plt.plot(avg_success_rate,label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.plot(avg_regnet_success_rate,label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
                             plt.ylabel('success rate')
                             plt.xlabel('overlap threshold')
                             plt.legend()
 
                             plt.figure(12)
-                            plt.plot(avg_precision,label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.plot(avg_precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.plot(avg_regnet_precision, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
                             plt.ylabel('precision')
                             plt.xlabel('location error threshold')
                             plt.legend()
@@ -1111,24 +1224,28 @@ if __name__ == "__main__":
                         plt.figure(2)
                         # plt.plot(result_distances, label=losses_strings[loss_index])
                         plt.plot(result_distances, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.plot(result_regnet_distances, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
                         plt.ylabel('distances')
                         plt.xlabel('image number')
                         plt.legend()
 
                         plt.figure(3)
                         plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.plot(result_regnet_ious, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
                         plt.ylabel('ious')
                         plt.xlabel('image number')
                         plt.legend()
 
                         plt.figure(4)
                         plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.plot(regnet_success_rate, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
                         plt.ylabel('success rate')
                         plt.xlabel('overlap threshold')
                         plt.legend()
 
                         plt.figure(5)
                         plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.plot(regnet_precision, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
                         plt.ylabel('precision')
                         plt.xlabel('location error threshold')
                         plt.legend()
@@ -1136,19 +1253,27 @@ if __name__ == "__main__":
                 if display_VOT_benchmark:
 
                     result_fullpath = os.path.join(result_path,'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
+                    if not os.path.exists(result_fullpath):
+                        print('no file named: ' + result_fullpath)
+                        continue
                     with open(result_fullpath, "r") as read_file:
                         res = json.load(read_file)
 
                     if show_average_over_sequences:
                         avg_accuracy.append(res['accuracy'])
+                        avg_regnet_accuracy.append(res['regnet_accuracy'])
                         avg_fails.append(res['fails_per_seq'])
                         if sequence == sequence_list[-1]:
                             avg_accuracy = statistics.mean(avg_accuracy)
+                            avg_regnet_accuracy = statistics.mean(avg_regnet_accuracy)
                             avg_fails = statistics.mean(avg_fails)
                             plt.figure(6)
                             plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
                                                        cycler('marker', ["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
-                            plt.plot([avg_fails], [avg_accuracy], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.plot([avg_fails], [avg_accuracy],
+                                     label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
+                            plt.plot([avg_fails], [avg_regnet_accuracy],
+                                     label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
                             plt.ylabel('accuracy')
                             plt.xlabel('failures per sequence')
                             plt.legend()
@@ -1157,6 +1282,7 @@ if __name__ == "__main__":
                         plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
                                                cycler('marker',["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
                         plt.plot([res['fails_per_seq']], [res['accuracy']], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.plot([res['fails_per_seq']], [res['regnet_accuracy']], label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
                         plt.ylabel('accuracy')
                         plt.xlabel('failures per sequence')
                         plt.legend()

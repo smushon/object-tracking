@@ -22,7 +22,8 @@ class FCDataset(data.Dataset):
 
 
 class PosRegionDataset(data.Dataset):
-    def __init__(self, img_dir, img_list, gt, opts, is_cuda, generate_std=False, pre_generate=False):
+    def __init__(self, img_dir, img_list, gt, opts, is_cuda, generate_std=False, pre_generate=False,
+                 seq_regions_filename=''):
 
         self.img_list = np.array([os.path.join(img_dir, img) for img in img_list])
 
@@ -71,6 +72,16 @@ class PosRegionDataset(data.Dataset):
 
         self.pre_generate = pre_generate
         if pre_generate:
+            self.pos_regions_path = seq_regions_filename
+            if os.path.exists(seq_regions_filename):
+                saved_state = torch.load(seq_regions_filename)
+                if ('pos_regions' in saved_state.keys()) and ('pos_bbs_std_as_tensor' in saved_state.keys()):
+                    # self.pos_regions_path = seq_regions_filename
+                    self.pos_bbs_std_as_tensor = saved_state['pos_bbs_std_as_tensor']
+                    if torch.cuda.is_available():
+                        self.pos_bbs_std_as_tensor = self.pos_bbs_std_as_tensor.cuda()
+                    return None
+
             pos_regions = np.empty((0, 3, self.crop_size, self.crop_size))
             pos_bbs = np.empty((0, 4))
             for i, (img_path, bbox) in enumerate(zip(self.img_list, self.gt)):
@@ -81,19 +92,28 @@ class PosRegionDataset(data.Dataset):
                 pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
                 pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples, dtype='float32')), axis=0)
 
-            self.pos_regions = torch.from_numpy(pos_regions).float()
-
             pos_bbs_std = pos_bbs
             # assuming all frames in given sequence have the same size
             pos_bbs_std[:,0] = pos_bbs[:,0] * self.crop_size / self.image_size[0]
             pos_bbs_std[:,2] = pos_bbs[:,2] * self.crop_size / self.image_size[0]
             pos_bbs_std[:,1] = pos_bbs[:,1] * self.crop_size / self.image_size[1]
             pos_bbs_std[:,3] = pos_bbs[:,3] * self.crop_size / self.image_size[1]
-            if torch.cuda.is_available():
-                self.pos_bbs_std_as_tensor = torch.Tensor(pos_bbs_std).cuda()
-            else:
-                self.pos_bbs_std_as_tensor = torch.Tensor(pos_bbs_std)
+            self.pos_bbs_std_as_tensor = torch.Tensor(pos_bbs_std)
 
+            if seq_regions_filename is not '':
+                # self.pos_regions_path = seq_regions_filename
+                saved_regions = {
+                    'pos_regions': torch.from_numpy(pos_regions).float(),
+                    'pos_bbs_std_as_tensor': self.pos_bbs_std_as_tensor
+                }
+                torch.save(saved_regions, self.pos_regions_path)
+            else:
+                # self.pos_regions_path = ''
+                self.pos_regions = torch.from_numpy(pos_regions).float()
+
+            # bbs samples don't take much memory so we load (all of) them to memory in any case
+            if torch.cuda.is_available():
+                self.pos_bbs_std_as_tensor = self.pos_bbs_std_as_tensor.cuda()
 
 
     def __iter__(self):

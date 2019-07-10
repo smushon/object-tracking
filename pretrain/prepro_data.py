@@ -11,7 +11,7 @@ usr_home = os.path.expanduser('~')
 OS = platform.system()
 if OS == 'Windows':
     # usr_home = 'C:/Users/smush/'
-    seq_home = os.path.join(usr_home, 'downloads/VOT')
+    seq_home = os.path.join(usr_home, 'downloads','VOT')
 elif OS == 'Linux':
     # usr_home = '~/'
     seq_home = os.path.join(usr_home, 'MDNet-data/VOT')
