@@ -23,9 +23,10 @@ class FCDataset(data.Dataset):
 
 class PosRegionDataset(data.Dataset):
     def __init__(self, img_dir, img_list, gt, opts, is_cuda, generate_std=False, pre_generate=False,
-                 seq_regions_filename=''):
+                 seq_regions_filename='', blackout=False):
 
         self.img_list = np.array([os.path.join(img_dir, img) for img in img_list])
+        self.blackout = blackout
 
         self.generate_std = generate_std
         if generate_std:
@@ -44,7 +45,8 @@ class PosRegionDataset(data.Dataset):
         self.crop_size = opts['img_size']
         self.padding = opts['padding']
 
-        self.index = np.random.permutation(len(self.img_list))
+        self.gen_len = min(len(self.img_list), len(gt))
+        self.index = np.random.permutation(self.gen_len)
         self.pointer = 0
 
         image = Image.open(self.img_list[0]).convert('RGB')
@@ -54,6 +56,7 @@ class PosRegionDataset(data.Dataset):
         # I choose same parameters as tracker sample_generator
         # pos_generator and neg_generator have different parameters, the whole concept starting to seem wierd
         if not generate_std:
+            # self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.1, scale_f=1.005, aspect_f=None, valid=True)  # playing around
             self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.6, scale_f=1.05, aspect_f=None, valid=True)
         else:
             self.pos_generator = SampleGenerator('gaussian', self.crop_size, trans_f=0.6, scale_f=1.05, aspect_f=None, valid=True)
@@ -89,7 +92,7 @@ class PosRegionDataset(data.Dataset):
                 image = np.asarray(image)
 
                 pos_examples = gen_samples(self.pos_generator, bbox, self.batch_pos)
-                pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
+                pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples,blackout=self.blackout)), axis=0)
                 pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples, dtype='float32')), axis=0)
 
             pos_bbs_std = pos_bbs
@@ -120,10 +123,10 @@ class PosRegionDataset(data.Dataset):
         return self
 
     def __next__(self):
-        next_pointer = min(self.pointer + self.batch_frames, len(self.img_list))
+        next_pointer = min(self.pointer + self.batch_frames, self.gen_len)
         idx = self.index[self.pointer:next_pointer]  # a batch of frame numbers
         if len(idx) < self.batch_frames:  # if out of frame indexes, reshuffle and restart collecting
-            self.index = np.random.permutation(len(self.img_list))
+            self.index = np.random.permutation(self.gen_len)
             next_pointer = self.batch_frames - len(idx)
             idx = np.concatenate((idx, self.index[:next_pointer]))
         self.pointer = next_pointer
@@ -144,7 +147,7 @@ class PosRegionDataset(data.Dataset):
 
                     # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
                     pos_examples_std = gen_samples(self.pos_generator, bbox_std, n_pos)
-                    pos_regions = np.concatenate((pos_regions, self.extract_regions(image_std, pos_examples_std)), axis=0)
+                    pos_regions = np.concatenate((pos_regions, self.extract_regions(image_std, pos_examples_std,blackout=self.blackout)), axis=0)
                     num_example_list.append(len(pos_examples_std))
                     pos_bbs = np.concatenate((pos_bbs, np.array(pos_examples_std, dtype='float32')), axis=0)
 
@@ -159,7 +162,8 @@ class PosRegionDataset(data.Dataset):
 
                     # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
                     pos_examples = gen_samples(self.pos_generator, bbox, n_pos)
-                    pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples)), axis=0)
+                    # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=[0.75,0.85], relentless=True)  # playing around
+                    pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples,blackout=self.blackout)), axis=0)
                     num_example_list.append(len(pos_examples))
 
                     # no need for these any more
@@ -184,11 +188,20 @@ class PosRegionDataset(data.Dataset):
 
     next = __next__
 
-    def extract_regions(self, image, samples):
+    def extract_regions(self, image, samples, blackout=False):
+        blk_sample = np.array([0, 0, image.shape[0], image.shape[1]])
         regions = np.zeros((len(samples), self.crop_size, self.crop_size, 3), dtype='uint8')
         for i, sample in enumerate(samples):
             # tracking-time forward samples function work with valid=False...
-            regions[i] = crop_image(image, sample, self.crop_size, self.padding) #, True)
+            if blackout:
+                blk_image = image.copy()
+                blk_image[:int(sample[0]), :, :] = 0
+                blk_image[:, :int(sample[1]), :] = 0
+                blk_image[int(sample[0]+sample[2]):, :, :] = 0
+                blk_image[:, int(sample[1] + sample[3]):, :] = 0
+                regions[i] = crop_image(blk_image, blk_sample, self.crop_size, self.padding)
+            else:
+                regions[i] = crop_image(image, sample, self.crop_size, self.padding) #, True)
 
         regions = regions.transpose(0, 3, 1, 2)
         regions = regions.astype('float32') - 128.

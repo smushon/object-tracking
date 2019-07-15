@@ -24,7 +24,7 @@ else:
 # tracking_device = torch.device('cuda:0') ###################3 hack for debug #######################
 
 tracking_opts['model_path'] = '../models/mdnet_vot-otb.pth'
-tracking_opts['new_model_path'] = '../models/mdnet_vot-otb_new.pth'
+tracking_opts['new_model_path'] = '../models/mdnet_vot_new.pth'
 tracking_opts['img_size'] = 107
 tracking_opts['padding'] = 16
 

@@ -2,7 +2,7 @@ import numpy as np
 
 from utils import *
 
-def gen_samples(generator, bbox, n, overlap_range=None, scale_range=None):
+def gen_samples(generator, bbox, n, overlap_range=None, scale_range=None, relentless=False):
     
     if overlap_range is None and scale_range is None:
         return generator(bbox, n)
@@ -11,7 +11,7 @@ def gen_samples(generator, bbox, n, overlap_range=None, scale_range=None):
         samples = None
         remain = n
         factor = 2
-        while remain > 0 and factor < 16:
+        while remain > 0 and ((factor < 16) or relentless):
             samples_ = generator(bbox, remain*factor)
 
             idx = np.ones(len(samples_), dtype=bool)
@@ -29,7 +29,9 @@ def gen_samples(generator, bbox, n, overlap_range=None, scale_range=None):
             else:
                 samples = np.concatenate([samples, samples_])
             remain = n - len(samples)
-            factor = factor*2
+
+            if relentless and factor<8:
+                factor = factor*2
         
         return samples
 

@@ -12,4 +12,5 @@ pretrain/runs
 /**/*.pyc
 pretrain/__pycache__/
 /**/*.xml
-
+*.pth
+pretrain/seq_regions

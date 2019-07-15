@@ -41,7 +41,7 @@ pretrain_opts['use_summary'] = True
 #     sys.exit("aa! errors!")
 pretrain_opts['init_model_path'] = '../models/imagenet-vgg-m.mat'
 
-pretrain_opts['model_path'] = '../models/mdnet_vot-otb_new.pth'
+pretrain_opts['model_path'] = '../models/mdnet_vot_new.pth'
 pretrain_opts['summary_path'] = '../models/summary'
 
 pretrain_opts['batch_frames'] = 8

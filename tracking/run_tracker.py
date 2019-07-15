@@ -175,10 +175,14 @@ else:
     translate_mode = True
 
 use_opencv = False
-perform_refinement = True  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
+perform_refinement = False  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
 use_regnet = True
-use_lin_reg = True
+use_lin_reg = False
 update_non_refined_on_fail = True  # True - will use opencv tracker output, False - will use last successful refinement
+
+# the following can co-exist, but I don't want to return more variables so...
+use_regnet_add_samples_else_self_track = True  # True - expand samples for MDNet input, False - to self-track
+
 # ---------------------------------------------------
 
 
@@ -444,7 +448,10 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             if perform_refinement:
                 plt.plot([], label='regnet_ref', color='#0000ff')
             else:
-                plt.plot([], label='regnet_trk', color='#0000ff')
+                if use_regnet_add_samples_else_self_track:
+                    plt.plot([], label='regnet_exp', color='#0000ff')
+                else:
+                    plt.plot([], label='regnet_trk', color='#0000ff')
         ######################
 
         ######################
@@ -517,6 +524,47 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             top_idx = top_idx.cpu().numpy()
             target_score = top_scores.mean()
             target_bbox = samples[top_idx].mean(axis=0)
+
+            #########################################
+            if use_regnet and use_regnet_add_samples_else_self_track:
+                feats_samples = forward_samples(model, image, samples)
+                feats_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
+                samples_std = samples.copy()
+                img_size_std = opts['img_size']
+                samples_std[:,0] = samples[:,0] * img_size_std / image.size[0]
+                samples_std[:,2] = samples[:,2] * img_size_std / image.size[0]
+                samples_std[:,1] = samples[:,1] * img_size_std / image.size[1]
+                samples_std[:,3] = samples[:,3] * img_size_std / image.size[1]
+
+                regnet_input = torch.cat((feats_samples, feats_frame.repeat(256,1), torch.Tensor(samples_std)), dim=1)
+
+                if opts['use_gpu']:
+                    regnet_input = regnet_input.to(device=device)
+
+                # perform refinement
+                with torch.no_grad():
+                    samples_refined_std = bb_fc_model(regnet_input)
+                if translate_mode:
+                    samples_refined_std += regnet_input[:, -4:]
+
+                # cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
+                samples_refined_std = samples_refined_std.numpy()
+
+                # re-scale refined BB back to frame proportions
+                samples_refined = samples_refined_std
+                samples_refined[:,0] = samples_refined_std[:,0] * image.size[0] / img_size_std
+                samples_refined[:,2] = samples_refined_std[:,2] * image.size[0] / img_size_std
+                samples_refined[:,1] = samples_refined_std[:,1] * image.size[1] / img_size_std
+                samples_refined[:,3] = samples_refined_std[:,3] * image.size[1] / img_size_std
+
+                expanded_samples = np.concatenate((samples, samples_refined))
+                expanded_samples_score = forward_samples(model, image, expanded_samples, out_layer='fc6')
+                top_expanded_scores, top_expanded_idx = expanded_samples_score[:, 1].topk(5)
+
+                top_expanded_idx = top_expanded_idx.cpu().numpy()
+                target_expanded_score = top_expanded_scores.mean()
+                target_expanded_bbox = expanded_samples[top_expanded_idx].mean(axis=0)
+            #########################################
 
             if sample_generator.get_trans_f() == opts['trans_f_expand']:
                 try_again = False
@@ -649,7 +697,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         ##############################################################
 
         ###################################################
-        if use_regnet:
+        if use_regnet and (perform_refinement or not use_regnet_add_samples_else_self_track):
             # prepare input for refinement network
             if (success or init_after_loss) and perform_refinement:
                 if use_opencv:
@@ -657,7 +705,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 else:
                     bb_to_refine = samples[top_idx]  # regnet will refine mdnet best samples
             else:
-                bb_to_refine = np.array([result_regnet_bb[i - 1]])  # regnet will refine its previous output
+                bb_to_refine = np.array([result_regnet_bb[i - 1]])  # regnet will refine its previous output, i.e. self-track
             res_regnet_feats_BB = forward_samples(model, image, bb_to_refine)
             feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
 
@@ -702,6 +750,9 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 bbregnet_bbox = np.array(result_regnet_bb_refined.cpu())
             else:
                 bbregnet_bbox = np.array(result_regnet_bb_refined)
+
+        if use_regnet and use_regnet_add_samples_else_self_track:
+            bbregnet_bbox = target_expanded_bbox
         ###################################################
 
         # Bbox regression
@@ -789,7 +840,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         #################
         if gt is not None:
             if i < gt.shape[0]:
-                result_ious[i] = IoU
+                # result_ious[i] = IoU
+                result_ious[i] = overlap_ratio(result_bb[i], gt[i])[0]
                 result_centers[i] = result_bb[i, :2] + result_bb[i, 2:] / 2
 
                 result_regnet_ious[i] = overlap_ratio(result_regnet_bb[i], gt[i])[0]

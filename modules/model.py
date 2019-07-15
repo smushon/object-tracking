@@ -79,8 +79,8 @@ class RegNet(torch.nn.Module):
 
         input_layer_size = 2 * 4608 + 4  # images features, crop features, BB coordinates
         hidden_layer_size = 4000  # 512
-        hidden_layer2_size = 500
-        hidden_layer3_size = 50
+        hidden_layer2_size = 2000
+        hidden_layer3_size = 500
 
         self.translate_mode = translate_mode
         self.image_size = image_size

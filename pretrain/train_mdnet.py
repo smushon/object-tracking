@@ -4,6 +4,7 @@ import sys
 import pickle
 import time
 import datetime
+import msvcrt
 
 import torch
 import torch.optim as optim
@@ -19,20 +20,29 @@ from FocalLoss import *
 import matplotlib.pyplot as plt
 import copy
 
+dataset = 'VOT'
+# dataset = 'OTB'
+
+
 # img_home = '/data1/tracking'
 usr_home = os.path.expanduser('~')
 OS = platform.system()
 if OS == 'Windows':
     # usr_home = 'C:/Users/smush/'
-    img_home = os.path.join(usr_home, 'downloads','VOT')
+    img_home = os.path.join(usr_home, 'downloads',dataset)
 elif OS == 'Linux':
     # usr_home = '~/'
-    img_home = os.path.join(usr_home, 'MDNet-data/VOT')
+    img_home = os.path.join(usr_home, 'MDNet-data/' + dataset)
 else:
     sys.exit("aa! errors!")
 
 # this is output of the script prepro_data.py
-data_path = 'data/vot-otb.pkl'
+if dataset == 'VOT':
+    data_path = 'data/mdnet_vot.pkl'
+elif dataset == 'OTB':
+    data_path = 'data/otb.pkl'
+else:
+    raise Exception('unknown dataset..................')
 
 import sys
 sys.path.append("..")
@@ -71,16 +81,19 @@ train_regnet_opts_defaults = {
     'fixed_learning_rate': False,
     'limit_frame_per_seq': False,
     'regnet_model_path': '../models/regnet.pth',
-    'pre_generate': True
+    'pre_generate': True,
+    'blackout': False
 }
+
+
 
 validate_regnet_opts_defaults = {
     'translate_mode': True,
     'fewer_sequences': False,
     'saved_state': None,
     'limit_frame_per_seq': False,
-    'validation_data_indices': [30,15],
-    'validation_data_path': 'data/vot-otb.pkl',
+    'validation_data_indices': [0,0],
+    'validation_data_path': data_path,
     'validation_sub_sample': False,
     'validation_sub_sample_oddness': False,
     'regnet_model_path': '../models/regnet.pth'
@@ -122,9 +135,12 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     else:
         state = torch.load(regnet_model_path)
     print('model saved layers:')
+    model_str = ''
     for key, value in state['RegNet_layers'].items():
         if key.split('.')[-1] == 'weight':
             print('  ' + key.split('.')[0] + ': ' + str(value.shape[1]) + ' --> ' + str(value.shape[0]))
+            model_str += str(value.shape[1])
+    model_str += str(value.shape[0])
     regnet_model = RegNet(translate_mode=translate_mode, state=state)
     # regnet_model.load_state_dict(state['RegNet_layers'])  # done via RegNet() init function instead
     regnet_model.eval()
@@ -159,6 +175,7 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     # [0] -> starting index, [1] -> number of sequences
     validation_data_indices[0] = max(validation_data_indices[0], 0)
     validation_data_indices[0] = min(len(data)-1, validation_data_indices[0])
+
     K = len(data) - validation_data_indices[0]
     if validation_data_indices[1] > 0:
         K = min(validation_data_indices[1], K)
@@ -313,6 +330,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     generate_std = False
     # use_gpu = opts['use_gpu']
     img_size_std = opts['img_size']
+    tic_save = time.time()
 
     init_regnet = train_regnet_opts['init_regnet']
     lr = train_regnet_opts['lr']
@@ -326,10 +344,14 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     limit_frame_per_seq = train_regnet_opts['limit_frame_per_seq']
     regnet_model_path = train_regnet_opts['regnet_model_path']
     pre_generate = train_regnet_opts['pre_generate']
+    blackout = train_regnet_opts['blackout']
 
     if pre_generate:
-        generate_std = False  # because no need to saved much time
-        seq_regions_dir = "seq_regions"
+        generate_std = False  # because no need to save much time
+        if blackout:
+            seq_regions_dir = "seq_regions_blackout"
+        else:
+            seq_regions_dir = "seq_regions"
         os.makedirs(seq_regions_dir, exist_ok=True)
 
     # ------------
@@ -348,15 +370,16 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
         last_training_cycle_idx = -1
         loss_graphs = np.array([])
         log_messages = []
+        lr_history = np.empty((2, 0))
     else:  # load regnet from saved state
         if saved_state is not None:
             state = saved_state
         else:
             state = torch.load(regnet_model_path)
-        print('model saved layers:')
-        for key, value in state['RegNet_layers'].items():
-            if key.split('.')[-1] == 'weight':
-                print('  ' + key.split('.')[0] + ': ' + str(value.shape[1]) + ' --> ' + str(value.shape[0]))
+        # print('model saved layers:')
+        # for key, value in state['RegNet_layers'].items():
+        #     if key.split('.')[-1] == 'weight':
+        #         print('  ' + key.split('.')[0] + ': ' + str(value.shape[1]) + ' --> ' + str(value.shape[0]))
         regnet_model = RegNet(translate_mode=translate_mode, state=state)
         # regnet_model.load_state_dict(state['RegNet_layers'])  # done via RegNet() init function instead
         regnet_model.train()
@@ -389,6 +412,18 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             log_messages = state['log_messages']
         else:
             log_messages = []
+        if 'lr_history' in state.keys():
+            lr_history = state['lr_history']
+        else:
+            lr_history = np.empty((2, 0))
+
+    print('model architecture:')
+    model_str = ''
+    for key, value in regnet_model.layers.state_dict().items():
+        if key.split('.')[-1] == 'weight':
+            print('  ' + key.split('.')[0] + ': ' + str(value.shape[1]) + ' --> ' + str(value.shape[0]))
+            model_str += str(value.shape[1]) + '-'
+    model_str += str(value.shape[0])
 
     log_str = "starting precision (avg:std) = (%.5f:%.5f)" % (best_prec, best_std)
     print(log_str)
@@ -411,6 +446,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr'] / (2 * (idx + 1))
                     cur_lr = cur_lr / (2 * (idx + 1))
+    lr_new_history = np.array([[cur_lr], [0]])
 
     # -------------
 
@@ -469,7 +505,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
         #     seq_regions_filename = os.path.join(seq_regions_dir, "/".join(seqname.split('/'))) + '.pth'
         dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts, torch.cuda.is_available(),
                                       generate_std=generate_std, pre_generate=pre_generate,
-                                      seq_regions_filename=seq_regions_filename)
+                                      seq_regions_filename=seq_regions_filename, blackout=blackout)
         # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
 
         img_path_list = np.array([os.path.join(img_dir, img) for img in img_list])
@@ -534,6 +570,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     datetime_str = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
     log_messages.append(datetime_str + ' - ' + log_str)
 
+    zig = False
     if pre_generate:
         batch_offset = 0
         batch_indices = np.random.permutation(opts['batch_pos'])
@@ -544,12 +581,15 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     bottom_fig_num = 3
     med_fig_num = 4
     # cycle <> epoch, because each cycle we cycle through all sequences, but work only on a batch of frames from each
+    last_training_cycle_idx = 2000
     best_cycle = first_cycle - 1
     for i in range(first_cycle, opts['n_cycles']):
         print('')
         cyc_num = (i-first_cycle) + (last_training_cycle_idx+1)
         print("==== Start Cycle %d (%d) ====" % (i, cyc_num))
         print('learning rate: %.5g' % cur_lr)
+        # lr_new_history[:,-1] = np.array([cur_lr, i])
+        lr_new_history[1, -1] += 1
 
         # ---------------
 
@@ -837,12 +877,16 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             # this was used before realized proper (small) weight initialization and lr are instrumental
             return False, saved_state, i
         precision_history[K, i - first_cycle] = curr_cycle_prec_per_seq.mean()
+        if i<2000:  # we stop updating argmin_prec after a while
+            argmin_prec = precision_history[:,:i+1].mean(axis=1).argmin()
         # precision_history[K + 1, i - first_cycle] = curr_cycle_prec_per_seq[np.argsort(curr_cycle_prec_per_seq)[-(K-5):]].mean()
 
-        plt.figure(avg_fig_num)
+        fig = plt.figure(avg_fig_num)
         plt.clf()
+        fig.suptitle('curr/best prec: %f/%f -- curr lr: %f -- model %s' % (cur_regnet_prec, best_prec, cur_lr, model_str))  # , fontsize=16)
         plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), last_training_cycle_idx + 1), loss_graphs)  # saved graphs
         plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K, :i - first_cycle + 1])  # average all iou
+        plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[argmin_prec, :i - first_cycle + 1])  # sampled iou
         # plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K + 1, :i - first_cycle + 1])  # average top ious
         if not fixed_learning_rate:
             for idx in range(len(lr_marks)):  # plot lr change grid
@@ -852,9 +896,9 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), i - first_cycle + 1 + last_training_cycle_idx + 1), x, 'b--')
                 # x = lr_marks[idx][0] * np.ones(i + 1)
                 # plt.plot(x, 'b--')
-
         plt.ylabel('average sequence precision (IoU)')
         plt.xlabel('cycle')
+
         plt.pause(.01)
         plt.draw()
         plt.show(block=False)
@@ -872,6 +916,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']/(2*(lr_idx+1))
                     cur_lr = cur_lr/(2*(lr_idx+1))
+                    lr_new_history = np.concatenate((lr_new_history, np.array([[cur_lr], [0]])), axis=1)
             lr_idx = min(lr_idx + 1, len(lr_marks) - 1)  # redundant, lr_marks[-1][1] must be 1.0
             highest_lr_idx = lr_idx
         if cur_regnet_prec < lr_marks[lr_idx][0]:
@@ -879,6 +924,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']*(2*(lr_idx+1))
                     cur_lr = cur_lr * (2 * (lr_idx + 1))
+                    lr_new_history = np.concatenate((lr_new_history, np.array([[cur_lr], [0]])), axis=1)
             lr_idx = max(lr_idx - 1, 0)  # redundant, lr_marks[0][0] must be 0.0
             if lr_idx < highest_lr_idx - 1:  # identify a large fall in precision
                 log_str = "too large drop in precision, restarting from last best spot"
@@ -902,17 +948,27 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 'last_training_cycle_idx': cyc_num,
                 'loss_graphs': np.concatenate((loss_graphs,precision_history[K, :i - first_cycle + 1])),
                 'optimizer': optimizer.state_dict(),
-                'log_messages': log_messages
+                'log_messages': log_messages,
+                'lr_history': np.concatenate((lr_history, lr_new_history), axis=1)
             }
+
             if not dont_save:
                 log_str = "Save regnet_model to %s" % regnet_model_path
                 print(log_str)
                 # datetime_str = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
                 # log_messages.append(datetime_str + ' - ' + log_str)
 
-                torch.save(saved_state, regnet_model_path)
+                if time.time() - tic_save > 100:
+                    if zig:
+                        torch.save(saved_state, regnet_model_path)
+                    else:  # za
+                        torch.save(saved_state, regnet_model_path + '1')
+                    zig = not zig
+                    tic_save = time.time()
+
             if torch.cuda.is_available():
                 regnet_model = regnet_model.cuda()
+
 
     log_str = "best precision (avg:std): (%.5f:%.5f)" % (best_prec, best_std)
     print(log_str)
@@ -1096,7 +1152,7 @@ if __name__ == "__main__":
     parser.add_argument('-rg', '--train_regnet', action='store_true')  # defaut: don't traing regnet
     parser.add_argument('-tm', '--trained_mdnet', action='store_true')  # default: use original mdnet weights (for feature extraction)
     parser.add_argument('-ir', '--init_regnet', action='store_false')  # default: init regnet (else - cont saved state)
-    parser.add_argument('-lr', '--learning_rate', default=0.0001, type=float, help='learning rate')  # starting lr
+    parser.add_argument('-lr', '--learning_rate', default=0.000001, type=float, help='learning rate')  # starting lr
     parser.add_argument('-flr', '--fixed_learning_rate', action='store_true')  # default: lr changes depending on training precision
     parser.add_argument('-ot', '--translate_mode', action='store_false')  # default: output as coord shift
     parser.add_argument('-il', '--indirect_loss', action='store_true')  # default: direct (mse) loss
@@ -1106,6 +1162,7 @@ if __name__ == "__main__":
     parser.add_argument('-lf', '--limit_frame_per_seq', action='store_true')
     parser.add_argument('-mp', '--regnet_model_path', default='../models/regnet.pth', type=str)
     parser.add_argument('-pg', '--pre_generate', action='store_true')    # default: continuously generate frames on-the-fly
+    parser.add_argument('-bl', '--blackout', action='store_true')  # default: crop and resize sample before feature extraction
     # ----- regnet validation -----
     parser.add_argument('-vrg', '--validate_regnet', action='store_true')  # defaut: don't validate regnet
     parser.add_argument('-vsb', '--validation_sub_sample', action='store_true')  # defaut: don't sub_sample
@@ -1157,7 +1214,8 @@ if __name__ == "__main__":
             'fixed_learning_rate': args.fixed_learning_rate,
             'limit_frame_per_seq': args.limit_frame_per_seq,
             'regnet_model_path': args.regnet_model_path,
-            'pre_generate': args.pre_generate
+            'pre_generate': args.pre_generate,
+            'blackout': args.blackout
         }
         while not completed:
             # completed, saved_state, first_cycle = train_regnet(md_model_path, init_regnet=init_regnet, lr=args.learning_rate, translate_mode=args.translate_mode, direct_loss=not args.indirect_loss, fewer_sequences=args.fewer_sequences, dont_save=args.dont_save, saved_state=saved_state, first_cycle=first_cycle, fixed_learning_rate=args.fixed_learning_rate)
@@ -1173,8 +1231,8 @@ if __name__ == "__main__":
             'fewer_sequences': args.fewer_sequences,
             'saved_state': None,
             'limit_frame_per_seq': args.limit_frame_per_seq,
-            'validation_data_indices': [45,15], # [0, 30],
-            'validation_data_path': 'data/vot-otb.pkl',
+            'validation_data_indices': [45,15], # vot-[0, 30],[30,15],[45,13] otb-[25,24]
+            'validation_data_path': data_path,
             'validation_sub_sample': args.validation_sub_sample,
             'validation_sub_sample_oddness': args.validation_sub_sample_oddness,
             'regnet_model_path': args.regnet_model_path
