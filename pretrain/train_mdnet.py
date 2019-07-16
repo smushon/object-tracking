@@ -4,7 +4,7 @@ import sys
 import pickle
 import time
 import datetime
-import msvcrt
+# import msvcrt
 
 import torch
 import torch.optim as optim
@@ -96,7 +96,8 @@ validate_regnet_opts_defaults = {
     'validation_data_path': data_path,
     'validation_sub_sample': False,
     'validation_sub_sample_oddness': False,
-    'regnet_model_path': '../models/regnet.pth'
+    'regnet_model_path': '../models/regnet.pth',
+    'blackout': False
 }
 
 
@@ -126,6 +127,7 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     validation_sub_sample = validate_regnet_opts['validation_sub_sample']
     validation_sub_sample_oddness = validate_regnet_opts['validation_sub_sample_oddness']
     regnet_model_path = validate_regnet_opts['regnet_model_path']
+    blackout = validate_regnet_opts['blackout']
 
     # ------------
 
@@ -216,7 +218,7 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
         # this also happens during training every time frame are exhausted
 
         dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts, torch.cuda.is_available(),
-                                      generate_std=False, pre_generate=False, seq_regions_filename='')
+                                      generate_std=False, pre_generate=False, seq_regions_filename='', blackout=blackout)
 
         img_path_list = np.array([os.path.join(img_dir, img) for img in img_list])
         frame_features[k] = {}
@@ -396,11 +398,13 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
         else:
             best_std = 0.0
         if 'translate_mode' in state.keys():
+            if translate_mode is not state['translate_mode']:
+                print('WARNING: translate mode mismatch - saved state vs. argument')
             translate_mode = state['translate_mode']  # we overide train_regnet input according to saved state
         if 'last_training_cycle_idx' in state.keys():
             last_training_cycle_idx = state['last_training_cycle_idx']
         else:
-            last_training_cycle_idx = 49
+            last_training_cycle_idx = 49  # historical...
         if 'loss_graphs' in state.keys():
             loss_graphs = state['loss_graphs']
         else:
@@ -416,6 +420,10 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             lr_history = state['lr_history']
         else:
             lr_history = np.empty((2, 0))
+        if 'blackout' in state.keys():
+            if blackout is not state['blackout']:
+                print('WARNING: blackout mode mismatch - saved state vs. argument')
+            blackout = state['blackout']  # we overide train_regnet input according to saved state
 
     print('model architecture:')
     model_str = ''
@@ -581,7 +589,6 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     bottom_fig_num = 3
     med_fig_num = 4
     # cycle <> epoch, because each cycle we cycle through all sequences, but work only on a batch of frames from each
-    last_training_cycle_idx = 2000
     best_cycle = first_cycle - 1
     for i in range(first_cycle, opts['n_cycles']):
         print('')
@@ -675,7 +682,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
 
             bb_refined_std = regnet_model(net_input)
             if translate_mode:
-                bb_refined_std += pos_bbs_std_as_tensor
+                bb_refined_std += pos_bbs_std_as_tensor  # cute bug added expanded_gt_bbox_std_as_tensor...
 
             iou_scores = torch_overlap_ratio(bb_refined_std, expanded_gt_bbox_std_as_tensor)
             sample_ious = torch_overlap_ratio(pos_bbs_std_as_tensor, expanded_gt_bbox_std_as_tensor)
@@ -886,8 +893,9 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
         fig.suptitle('curr/best prec: %f/%f -- curr lr: %f -- model %s' % (cur_regnet_prec, best_prec, cur_lr, model_str))  # , fontsize=16)
         plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), last_training_cycle_idx + 1), loss_graphs)  # saved graphs
         plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K, :i - first_cycle + 1])  # average all iou
-        plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[argmin_prec, :i - first_cycle + 1])  # sampled iou
         # plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K + 1, :i - first_cycle + 1])  # average top ious
+
+        # plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[argmin_prec, :i - first_cycle + 1])  # sampled iou
         if not fixed_learning_rate:
             for idx in range(len(lr_marks)):  # plot lr change grid
                 x = lr_marks[idx][1] * np.ones(i - first_cycle + 1 + len(loss_graphs))
@@ -949,7 +957,8 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 'loss_graphs': np.concatenate((loss_graphs,precision_history[K, :i - first_cycle + 1])),
                 'optimizer': optimizer.state_dict(),
                 'log_messages': log_messages,
-                'lr_history': np.concatenate((lr_history, lr_new_history), axis=1)
+                'lr_history': np.concatenate((lr_history, lr_new_history), axis=1),
+                'blackout': blackout
             }
 
             if not dont_save:
@@ -1231,11 +1240,12 @@ if __name__ == "__main__":
             'fewer_sequences': args.fewer_sequences,
             'saved_state': None,
             'limit_frame_per_seq': args.limit_frame_per_seq,
-            'validation_data_indices': [45,15], # vot-[0, 30],[30,15],[45,13] otb-[25,24]
+            'validation_data_indices': [30,15], # vot-[0, 30],[30,15],[45,13] otb-[25,24]
             'validation_data_path': data_path,
             'validation_sub_sample': args.validation_sub_sample,
             'validation_sub_sample_oddness': args.validation_sub_sample_oddness,
-            'regnet_model_path': args.regnet_model_path
+            'regnet_model_path': args.regnet_model_path,
+            'blackout': args.blackout
         }
         validate_regnet(md_model_path, validate_regnet_opts)
 

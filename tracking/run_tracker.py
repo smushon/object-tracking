@@ -113,16 +113,16 @@ models_paths = {1: opts['model_path'], 2: opts['new_model_path']}
 # tracking: speed-ups
 if opts['use_gpu']:
     load_features_from_file = False
-    avg_iters_per_sequence = 3  # should be 15 per the VOT challenge
+    avg_iters_per_sequence = 1  # 3  # should be 15 per the VOT challenge
     fewer_images = False  # default. can be overriden by command argument
-    loss_indices_for_tracking = [1, 2]
-    models_indices_for_tracking = [1, 2]
+    loss_indices_for_tracking = [1]  # [1, 2]
+    models_indices_for_tracking = [1]  # [1, 2]
 else:  # minimalist - just see the code works
     load_features_from_file = True
     avg_iters_per_sequence = 1
     fewer_images = True
     loss_indices_for_tracking = [1]
-    models_indices_for_tracking = [1, 2]
+    models_indices_for_tracking = [1]  # [1, 2]
 
 # load_features_from_file = True  ############# hack for debug ###################33
 
@@ -137,6 +137,8 @@ if load_features_from_file:
 init_after_loss = False  # True - VOT metrics, False - OTB metrics
 display_VOT_benchmark = True
 display_OTB_benchmark = True
+# if init_after_loss:  # a VOT benchmark
+#     display_OTB_benchmark = False
 ###########################################
 
 
@@ -175,14 +177,14 @@ else:
     translate_mode = True
 
 use_opencv = False
-perform_refinement = False  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
-use_regnet = True
-use_lin_reg = False
-update_non_refined_on_fail = True  # True - will use opencv tracker output, False - will use last successful refinement
+perform_refinement = True  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
+use_regnet = False
+use_lin_reg = True
+update_non_refined_on_fail = False  # True - will use opencv tracker output, False - will use last successful refinement
 
 # the following can co-exist, but I don't want to return more variables so...
 use_regnet_add_samples_else_self_track = True  # True - expand samples for MDNet input, False - to self-track
-
+display_model_loss_details = False
 # ---------------------------------------------------
 
 
@@ -535,11 +537,13 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 samples_std[:,2] = samples[:,2] * img_size_std / image.size[0]
                 samples_std[:,1] = samples[:,1] * img_size_std / image.size[1]
                 samples_std[:,3] = samples[:,3] * img_size_std / image.size[1]
-
-                regnet_input = torch.cat((feats_samples, feats_frame.repeat(256,1), torch.Tensor(samples_std)), dim=1)
-
+                samples_std_as_tensor = torch.Tensor(samples_std)
                 if opts['use_gpu']:
-                    regnet_input = regnet_input.to(device=device)
+                    samples_std_as_tensor = samples_std_as_tensor.to(device=device)
+                regnet_input = torch.cat((feats_samples, feats_frame.repeat(feats_samples.shape[0],1), samples_std_as_tensor), dim=1)
+
+                # if opts['use_gpu']:
+                #     regnet_input = regnet_input.to(device=device)
 
                 # perform refinement
                 with torch.no_grad():
@@ -548,7 +552,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     samples_refined_std += regnet_input[:, -4:]
 
                 # cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
-                samples_refined_std = samples_refined_std.numpy()
+                samples_refined_std = samples_refined_std.cpu().numpy()
 
                 # re-scale refined BB back to frame proportions
                 samples_refined = samples_refined_std
@@ -844,8 +848,12 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 result_ious[i] = overlap_ratio(result_bb[i], gt[i])[0]
                 result_centers[i] = result_bb[i, :2] + result_bb[i, 2:] / 2
 
-                result_regnet_ious[i] = overlap_ratio(result_regnet_bb[i], gt[i])[0]
-                result_regnet_centers[i] = result_regnet_bb[i, :2] + result_regnet_bb[i, 2:] / 2
+                if use_regnet:
+                    result_regnet_ious[i] = overlap_ratio(result_regnet_bb[i], gt[i])[0]
+                    result_regnet_centers[i] = result_regnet_bb[i, :2] + result_regnet_bb[i, 2:] / 2
+                elif use_lin_reg and perform_refinement:  # we will compare linreg with non-linreg
+                    result_regnet_ious[i] = overlap_ratio(result[i], gt[i])[0]
+                    result_regnet_centers[i] = result[i, :2] + result[i, 2:] / 2
         #################
 
         # Data collect
@@ -1002,7 +1010,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     result_regnet_distances = scipy.spatial.distance.cdist(result_regnet_centers, gt_centers, metric='euclidean').diagonal()
     # fps = num_images / spf_total
     num_images_tracked = num_images-1  # I don't want to count initialization frame (i.e. frame 0)
-    print('    main loop finished, %d frames, %d short updates' % (num_images, num_short_updates))
+    print('    main loop finished, %d frames, %d short updates, accuracy %f' % (num_images, num_short_updates, np.mean(result_ious)))
 
     return result, result_bb, num_images_tracked, spf_total, result_distances, result_ious, result_regnet_distances, result_regnet_ious, False
 
@@ -1018,12 +1026,15 @@ if __name__ == "__main__":
     ################
     parser.add_argument('-sh', '--seq_home', default=seq_home, help='input seq_home')
     parser.add_argument('-at', '--attributes', default='selection', help='attributes separated by -')
-    parser.add_argument('-i', '--init_after_loss', action='store_true')
-    parser.add_argument('-l', '--lmt_seq', action='store_true')
-    parser.add_argument('-ln', '--seq_len_lmt', default='0', help='sequence length limit')
+    parser.add_argument('-i', '--init_after_loss', default='both')
+    # parser.add_argument('-i', '--init_after_loss', action='store_true')
+    parser.add_argument('-l', '--lmt_seq', action='store_true')  # limit frames per image
+    parser.add_argument('-ln', '--seq_len_lmt', default='0', help='sequence length limit')  # specify frame limit number
 
     parser.add_argument('-p', '--plt_bnch', action='store_true')  # plot benchmark graphs from saved results
     parser.add_argument('-tr', '--perform_tracking', action='store_true')  # plot benchmark graphs from saved results
+    parser.add_argument('-rsf', '--result_sub_folder', default='')
+
     ################
 
     args = parser.parse_args()
@@ -1037,7 +1048,13 @@ if __name__ == "__main__":
             sequence_len_limit = args.seq_len_lmt
         # else, sequence_len_limit stays with default value
 
-    init_after_loss = args.init_after_loss
+    # init_after_loss = args.init_after_loss
+    if args.init_after_loss == 'both':
+        init_after_loss_selection = [False, True]
+    elif args.init_after_loss == 'True':
+        init_after_loss_selection = [True]
+    else:
+        init_after_loss_selection = [False]
 
     if args.attributes == 'selection':
         select_attributes_strings = OTB_select_attributes_strings
@@ -1061,11 +1078,16 @@ if __name__ == "__main__":
         sequence_list = my_sequence_list
     elif args.seq == 'all':
         sequence_list = next(os.walk(seq_home))[1]
+        sequence_list.sort()
+        ############################ hack ####################################################
+        # sequence_list = sequence_list[:5]
+        ############################ hack ####################################################
     else:
         sequence_list = [args.seq]  # e.g. -s DragonBaby
 
     perform_tracking = args.perform_tracking
     display_benchmark_results = args.plt_bnch
+    result_sub_folder = args.result_sub_folder
     ################
 
     # ------
@@ -1078,7 +1100,7 @@ if __name__ == "__main__":
         # model_index - iterate over different weights learnt
         # loss_index - iterate over different loss functions for online training
         # sequnce - iterate over different sequences
-        for model_index, loss_index, sequence in itertools.product(models_indices_for_tracking, loss_indices_for_tracking, sequence_list):
+        for model_index, loss_index, sequence, init_after_loss in itertools.product(models_indices_for_tracking, loss_indices_for_tracking, sequence_list, init_after_loss_selection ):
 
             # ------
             # img_list - list of (relative path) file names of the jpg images
@@ -1091,12 +1113,12 @@ if __name__ == "__main__":
 
             # Generate sequence of princeton dataset config
             args.seq = sequence
-            img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
+            img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args, sub_folder=result_sub_folder)
             # ------
 
             tracking_start = time.time()
             print('')
-            print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence)
+            print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence + ' | init-after-loss ' + str(init_after_loss))
 
             # each run is random, so we need to average before comparing
             # each iteration starts from the finish of the offline training
@@ -1193,7 +1215,8 @@ if __name__ == "__main__":
             json.dump(res, open(result_fullpath, 'w'), indent=2)
 
             tracking_time = time.time() - tracking_start
-            print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence + ' | elapsed %.3f' % (tracking_time))
+            # print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence + ' | elapsed %.3f' % (tracking_time))
+            print('tracking: elapsed %.3f' % (tracking_time))
 
         tracking_time = time.time() - tracking_started
         print('finished %d losses x %d models x %d sequences - elapsed %d' % (len(loss_indices_for_tracking), len(models_indices_for_tracking), len(sequence_list), tracking_time))
@@ -1201,9 +1224,26 @@ if __name__ == "__main__":
     # ------
 
     if display_benchmark_results:
+        if args.init_after_loss == 'both':
+            raise Exception("init=Both not fully implemented yet (will override graphs). please select either True or False")
 
-        for model_index, loss_index in itertools.product(models_indices_for_tracking, loss_indices_for_tracking):
+        IPython_default = plt.rcParams.copy()
 
+        if use_lin_reg and perform_refinement:
+            base_str = 'linreg_'
+        else:
+            base_str = 'raw-mdnet_'
+
+        if use_regnet and perform_refinement:
+            reference_str = 'regnet-refine-mdnet_'
+        elif use_regnet and not use_regnet_add_samples_else_self_track:
+            reference_str = 'regnet-refine-self_'
+        elif use_regnet and use_regnet_add_samples_else_self_track:
+            reference_str = 'regnet-refine-samples_'
+        else:
+            reference_str = 'raw-mdnet_'
+
+        for model_index, loss_index, init_after_loss in itertools.product(models_indices_for_tracking, loss_indices_for_tracking, init_after_loss_selection):
             if show_average_over_sequences:
                 if display_VOT_benchmark:
                     avg_accuracy = []
@@ -1215,19 +1255,30 @@ if __name__ == "__main__":
                     avg_precision = np.zeros((len(sequence_list),np.arange(0, 50.5, step=0.5).size))
                     avg_regnet_precision = np.zeros((len(sequence_list), np.arange(0, 50.5, step=0.5).size))
 
+            if display_model_loss_details:
+                detailed_str = '_model-' + models_strings[model_index] + '__loss-' + losses_strings[loss_index] + '_'
+            else:
+                detailed_str = ''
+
+            # seq_iter = 0
+            seq_batch_iter = 0
+            valid_index_list = []
             for seq_iter, sequence in enumerate(sequence_list):
 
                 args.seq = sequence
-                img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args)
+                img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args, sub_folder=result_sub_folder)
 
-                if display_OTB_benchmark:
+                result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' +
+                                               losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
+                if not os.path.exists(result_fullpath):
+                    print('no file named: ' + result_fullpath)
+                    continue
+                valid_index_list.append(seq_iter)
+                with open(result_fullpath, "r") as read_file:
+                    res = json.load(read_file)
 
-                    result_fullpath = os.path.join(result_path,'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-False' + '.json')
-                    if not os.path.exists(result_fullpath):
-                        print('no file named: ' + result_fullpath)
-                        continue
-                    with open(result_fullpath, "r") as read_file:
-                        res = json.load(read_file)
+                if display_OTB_benchmark and not init_after_loss:
+                    # note: no reinitialization procedure for OTB benchmark / metrics
 
                     result_distances = np.asarray(res['distances'])
                     result_ious = np.asarray(res['ious'])
@@ -1254,90 +1305,105 @@ if __name__ == "__main__":
                         avg_regnet_success_rate[seq_iter,:] = regnet_success_rate
                         avg_precision[seq_iter,:] = precision
                         avg_regnet_precision[seq_iter, :] = regnet_precision
-                        if sequence == sequence_list[-1]:
-                            avg_success_rate = avg_success_rate.mean(axis=0)
-                            avg_regnet_success_rate = avg_regnet_success_rate.mean(axis=0)
-                            avg_precision = avg_precision.mean(axis=0)
-                            avg_regnet_precision = avg_regnet_precision.mean(axis=0)
-                            plt.figure(11)
-                            plt.plot(avg_success_rate,label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                            plt.plot(avg_regnet_success_rate,label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                            plt.ylabel('success rate')
-                            plt.xlabel('overlap threshold')
-                            plt.legend()
 
-                            plt.figure(12)
-                            plt.plot(avg_precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                            plt.plot(avg_regnet_precision, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                            plt.ylabel('precision')
-                            plt.xlabel('location error threshold')
-                            plt.legend()
                     if show_per_sequence:
-                        plt.figure(2)
+                        plt.figure(2+seq_batch_iter*10)
                         # plt.plot(result_distances, label=losses_strings[loss_index])
-                        plt.plot(result_distances, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
-                        plt.plot(result_regnet_distances, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.rcParams.update(IPython_default)
+                        plt.plot(result_distances, label=base_str + detailed_str + '_sequence-' + sequence)
+                        plt.plot(result_regnet_distances, label=reference_str + detailed_str + '_sequence-' + sequence)
                         plt.ylabel('distances')
                         plt.xlabel('image number')
                         plt.legend()
 
-                        plt.figure(3)
-                        plt.plot(result_ious, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
-                        plt.plot(result_regnet_ious, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.figure(3+seq_batch_iter*10)
+                        plt.rcParams.update(IPython_default)
+                        plt.plot(result_ious, label=base_str + detailed_str + '_sequence-' + sequence)
+                        plt.plot(result_regnet_ious, label=reference_str + detailed_str + '_sequence-' + sequence)
                         plt.ylabel('ious')
                         plt.xlabel('image number')
                         plt.legend()
 
-                        plt.figure(4)
-                        plt.plot(success_rate, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
-                        plt.plot(regnet_success_rate, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.figure(4+seq_batch_iter*10)
+                        plt.rcParams.update(IPython_default)
+                        plt.plot(success_rate, label=base_str + detailed_str + '_sequence-' + sequence)
+                        plt.plot(regnet_success_rate, label=reference_str + detailed_str + '_sequence-' + sequence)
                         plt.ylabel('success rate')
                         plt.xlabel('overlap threshold')
                         plt.legend()
 
-                        plt.figure(5)
-                        plt.plot(precision, label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
-                        plt.plot(regnet_precision, label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.figure(5+seq_batch_iter*10)
+                        # plt.rcParamsDefault
+                        plt.rcParams.update(IPython_default)
+                        plt.plot(precision, label=base_str + detailed_str + '_sequence-' + sequence)
+                        plt.plot(regnet_precision, label=reference_str + detailed_str + '_sequence-' + sequence)
                         plt.ylabel('precision')
                         plt.xlabel('location error threshold')
                         plt.legend()
 
                 if display_VOT_benchmark:
 
-                    result_fullpath = os.path.join(result_path,'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
-                    if not os.path.exists(result_fullpath):
-                        print('no file named: ' + result_fullpath)
-                        continue
-                    with open(result_fullpath, "r") as read_file:
-                        res = json.load(read_file)
-
                     if show_average_over_sequences:
                         avg_accuracy.append(res['accuracy'])
                         avg_regnet_accuracy.append(res['regnet_accuracy'])
                         avg_fails.append(res['fails_per_seq'])
-                        if sequence == sequence_list[-1]:
-                            avg_accuracy = statistics.mean(avg_accuracy)
-                            avg_regnet_accuracy = statistics.mean(avg_regnet_accuracy)
-                            avg_fails = statistics.mean(avg_fails)
-                            plt.figure(6)
-                            plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
-                                                       cycler('marker', ["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
-                            plt.plot([avg_fails], [avg_accuracy],
-                                     label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                            plt.plot([avg_fails], [avg_regnet_accuracy],
-                                     label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index])
-                            plt.ylabel('accuracy')
-                            plt.xlabel('failures per sequence')
-                            plt.legend()
+
                     if show_per_sequence:
-                        plt.figure(13)
+                        plt.figure(6+seq_batch_iter*10)
                         plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
                                                cycler('marker',["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X", "D", "d"])))
-                        plt.plot([res['fails_per_seq']], [res['accuracy']], label='model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
-                        plt.plot([res['fails_per_seq']], [res['regnet_accuracy']], label='regnet_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_sequence-' + sequence)
+                        plt.plot([res['fails_per_seq']], [res['accuracy']], label=base_str + detailed_str + '_sequence-' + sequence)
+                        plt.plot([res['fails_per_seq']], [res['regnet_accuracy']], label=reference_str + detailed_str + '_sequence-' + sequence)
                         plt.ylabel('accuracy')
                         plt.xlabel('failures per sequence')
                         plt.legend()
 
+                if ((seq_iter+1) % 5) == 0:
+                    seq_batch_iter += 1
+                    # input_str = input('press key to continue')
+
+            if show_average_over_sequences:
+                if display_OTB_benchmark and (not init_after_loss):
+                    avg_success_rate = avg_success_rate[valid_index_list, :]
+                    avg_regnet_success_rate = avg_regnet_success_rate[valid_index_list, :]
+                    avg_precision = avg_precision[valid_index_list, :]
+                    avg_regnet_precision = avg_regnet_precision[valid_index_list, :]
+
+                    avg_success_rate = avg_success_rate.mean(axis=0)
+                    avg_regnet_success_rate = avg_regnet_success_rate.mean(axis=0)
+                    avg_precision = avg_precision.mean(axis=0)
+                    avg_regnet_precision = avg_regnet_precision.mean(axis=0)
+                    plt.figure(8)
+                    plt.rcParams.update(IPython_default)
+                    plt.plot(avg_success_rate, label=base_str + detailed_str)
+                    plt.plot(avg_regnet_success_rate, label=reference_str + detailed_str)
+                    plt.ylabel('success rate')
+                    plt.xlabel('overlap threshold')
+                    plt.legend()
+
+                    plt.figure(9)
+                    plt.rcParams.update(IPython_default)
+                    plt.plot(avg_precision, label=base_str + detailed_str)
+                    plt.plot(avg_regnet_precision, label=reference_str + detailed_str)
+                    plt.ylabel('precision')
+                    plt.xlabel('location error threshold')
+                    plt.legend()
+
+                if display_VOT_benchmark:
+                    avg_accuracy = statistics.mean(avg_accuracy)
+                    avg_regnet_accuracy = statistics.mean(avg_regnet_accuracy)
+                    avg_fails = statistics.mean(avg_fails)
+                    plt.figure(10)
+                    plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'y', 'c', 'k']) *
+                                               cycler('marker',
+                                                      ["o", "v", "^", "<", ">", "8", "s", "p", "P", "*", "h", "H", "X",
+                                                       "D", "d"])))
+                    plt.plot([avg_fails], [avg_accuracy],
+                             label=base_str + detailed_str)
+                    plt.plot([avg_fails], [avg_regnet_accuracy],
+                             label=reference_str + detailed_str)
+                    plt.ylabel('accuracy')
+                    plt.xlabel('failures per sequence')
+                    plt.legend()
 
         plt.show()

@@ -99,11 +99,14 @@ class RegNet(torch.nn.Module):
 
         self.layers = nn.Sequential(OrderedDict([
             ('flatten',  FlattenLayer()),
-            ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+            ('fc1', nn.Sequential(nn.Dropout(0.5),
+                                  nn.Linear(input_layer_size, hidden_layer_size),
                                   nn.LeakyReLU())),
-            ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, hidden_layer2_size),
+            ('fc2', nn.Sequential(nn.Dropout(0.5),
+                                  nn.Linear(hidden_layer_size, hidden_layer2_size),
                                   nn.LeakyReLU())),
-            ('fc3', nn.Sequential(nn.Linear(hidden_layer2_size, 4)))
+            ('fc3', nn.Sequential(nn.Dropout(0.5),
+                                  nn.Linear(hidden_layer2_size, 4)))
         ]))
 
         # self.layers = nn.Sequential(OrderedDict([

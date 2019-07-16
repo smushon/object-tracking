@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 
-def prin_gen_config(args):
+def prin_gen_config(args, sub_folder=''):
     if args.seq != '':
         # generate config from a sequence name
 
@@ -12,6 +12,8 @@ def prin_gen_config(args):
         seq_home = args.seq_home
         save_home = '../result_fig'
         result_home = '../result'
+        if sub_folder is not '':
+            result_home = os.path.join(result_home, sub_folder)
 
         seq_name = args.seq
         # img_dir = os.path.join(seq_home, seq_name, 'rgb')
@@ -36,8 +38,8 @@ def prin_gen_config(args):
 
         savefig_dir = os.path.join(save_home, seq_name)
         result_dir = os.path.join(result_home, seq_name)
-        if not os.path.exists(result_dir):
-            os.makedirs(result_dir)
+        # if not os.path.exists(result_dir):
+        os.makedirs(result_dir, exist_ok=True)
         # result_path = os.path.join(result_dir, 'result.json')
         result_path = result_dir
 
@@ -53,8 +55,8 @@ def prin_gen_config(args):
         gt = None
 
     if args.savefig:
-        if not os.path.exists(savefig_dir):
-            os.makedirs(savefig_dir)
+        # if not os.path.exists(savefig_dir):
+        os.makedirs(savefig_dir, exist_ok=True)
     else:
         savefig_dir = ''
 
