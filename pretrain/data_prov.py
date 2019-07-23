@@ -10,7 +10,6 @@ sys.path.insert(0,'../modules')
 from sample_generator import *
 from utils import *
 
-
 class FCDataset(data.Dataset):
     def __init__(self, img_dir, img_list, gt, opts):
 
@@ -23,7 +22,7 @@ class FCDataset(data.Dataset):
 
 class PosRegionDataset(data.Dataset):
     def __init__(self, img_dir, img_list, gt, opts, is_cuda, generate_std=False, pre_generate=False,
-                 seq_regions_filename='', blackout=False):
+                 seq_regions_filename='', blackout=False, gt_origin=None):
 
         self.img_list = np.array([os.path.join(img_dir, img) for img in img_list])
         self.blackout = blackout
@@ -56,22 +55,40 @@ class PosRegionDataset(data.Dataset):
         # I choose same parameters as tracker sample_generator
         # pos_generator and neg_generator have different parameters, the whole concept starting to seem wierd
         if not generate_std:
-            # self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.1, scale_f=1.005, aspect_f=None, valid=True)  # playing around
-            self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.6, scale_f=1.05, aspect_f=None, valid=True)
+            self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.1, scale_f=1.005, aspect_f=None)  #, valid=True)  # playing around
+            # self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.6, scale_f=1.05, aspect_f=None)  #, valid=True)
         else:
-            self.pos_generator = SampleGenerator('gaussian', self.crop_size, trans_f=0.6, scale_f=1.05, aspect_f=None, valid=True)
+            self.pos_generator = SampleGenerator('gaussian', self.crop_size, trans_f=0.6, scale_f=1.05, aspect_f=None)  #, valid=True)
 
         if not generate_std:
             self.gt = gt.copy()
-        self.gt_std_as_numpy = gt.copy()
-        self.gt_std_as_numpy[:, 0] = gt[:, 0] * self.crop_size / self.image_size[0]
-        self.gt_std_as_numpy[:, 2] = gt[:, 2] * self.crop_size / self.image_size[0]
-        self.gt_std_as_numpy[:, 1] = gt[:, 1] * self.crop_size / self.image_size[1]
-        self.gt_std_as_numpy[:, 3] = gt[:, 3] * self.crop_size / self.image_size[1]
+        gt_std_as_numpy = gt.copy()
+        gt_std_as_numpy[:, 0] = gt[:, 0] * self.crop_size / self.image_size[0]
+        gt_std_as_numpy[:, 2] = gt[:, 2] * self.crop_size / self.image_size[0]
+        gt_std_as_numpy[:, 1] = gt[:, 1] * self.crop_size / self.image_size[1]
+        gt_std_as_numpy[:, 3] = gt[:, 3] * self.crop_size / self.image_size[1]
         if is_cuda:
-            self.gt_std_as_tensor = torch.from_numpy(self.gt_std_as_numpy).float().cuda()
+            self.gt_std_as_tensor = torch.from_numpy(gt_std_as_numpy).float().cuda()
         else:
-            self.gt_std_as_tensor = torch.from_numpy(self.gt_std_as_numpy).float()
+            self.gt_std_as_tensor = torch.from_numpy(gt_std_as_numpy).float()
+
+        if not generate_std:
+            if gt_origin is not None:
+                self.gt_origin = gt_origin.copy()
+            else:
+                self.gt_origin = None
+        if gt_origin is not None:
+            gt_origin_std_as_numpy = gt_origin.copy()
+            gt_origin_std_as_numpy[:, 0] = gt_origin[:, 0] * self.crop_size / self.image_size[0]
+            gt_origin_std_as_numpy[:, 2] = gt_origin[:, 2] * self.crop_size / self.image_size[0]
+            gt_origin_std_as_numpy[:, 1] = gt_origin[:, 1] * self.crop_size / self.image_size[1]
+            gt_origin_std_as_numpy[:, 3] = gt_origin[:, 3] * self.crop_size / self.image_size[1]
+            if is_cuda:
+                self.gt_origin_std_as_tensor = torch.from_numpy(gt_origin_std_as_numpy).float().cuda()
+            else:
+                self.gt_origin_std_as_tensor = torch.from_numpy(gt_origin_std_as_numpy).float()
+        else:
+            self.gt_origin_std_as_tensor = None
 
         self.pre_generate = pre_generate
         if pre_generate:
@@ -161,8 +178,8 @@ class PosRegionDataset(data.Dataset):
                     n_pos = (self.batch_pos - len(pos_regions)) // (self.batch_frames - i)
 
                     # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=self.overlap_pos)
-                    pos_examples = gen_samples(self.pos_generator, bbox, n_pos)
-                    # pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=[0.75,0.85], relentless=True)  # playing around
+                    # pos_examples = gen_samples(self.pos_generator, bbox, n_pos)
+                    pos_examples = gen_samples(self.pos_generator, bbox, n_pos, overlap_range=[0.75,1], relentless=True)  # playing around
                     pos_regions = np.concatenate((pos_regions, self.extract_regions(image, pos_examples,blackout=self.blackout)), axis=0)
                     num_example_list.append(len(pos_examples))
 

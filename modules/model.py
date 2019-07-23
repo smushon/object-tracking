@@ -81,20 +81,30 @@ class RegNet(torch.nn.Module):
         hidden_layer_size = 4000  # 512
         hidden_layer2_size = 2000
         hidden_layer3_size = 500
+        self.output_size = 4 # 4
 
         self.translate_mode = translate_mode
         self.image_size = image_size
 
         # self.layers = nn.Sequential(OrderedDict([
         #     ('flatten',  FlattenLayer()),
-        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, 4)))
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, self.output_size)))
         # ]))
 
         # self.layers = nn.Sequential(OrderedDict([
         #     ('flatten',  FlattenLayer()),
         #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
         #                           nn.LeakyReLU())),
-        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, 4)))
+        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, self.output_size)))
+        # ]))
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, hidden_layer2_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc3', nn.Sequential(nn.Linear(hidden_layer2_size, self.output_size)))
         # ]))
 
         self.layers = nn.Sequential(OrderedDict([
@@ -106,7 +116,7 @@ class RegNet(torch.nn.Module):
                                   nn.Linear(hidden_layer_size, hidden_layer2_size),
                                   nn.LeakyReLU())),
             ('fc3', nn.Sequential(nn.Dropout(0.5),
-                                  nn.Linear(hidden_layer2_size, 4)))
+                                  nn.Linear(hidden_layer2_size, self.output_size)))
         ]))
 
         # self.layers = nn.Sequential(OrderedDict([
@@ -117,7 +127,7 @@ class RegNet(torch.nn.Module):
         #                           nn.LeakyReLU())),
         #     ('fc3', nn.Sequential(nn.Linear(hidden_layer2_size, hidden_layer3_size),
         #                           nn.LeakyReLU())),
-        #     ('fc4', nn.Sequential(nn.Linear(hidden_layer3_size, 4)))
+        #     ('fc4', nn.Sequential(nn.Linear(hidden_layer3_size, self.output_size)))
         # ]))
 
 
@@ -141,7 +151,7 @@ class RegNet(torch.nn.Module):
             x = module(x)
         # x = (x1, y1, width, height)
 
-        if self.translate_mode:
+        if self.translate_mode and self.output_size==4:
             x += input_bb
 
         # ----- crop ------
@@ -152,24 +162,24 @@ class RegNet(torch.nn.Module):
         ones = torch.ones_like(x[:, 0])
         zeros = torch.zeros_like(x[:, 0])
 
-        # x1,y1 must be within frame boundries
-        x[:, 0] = torch.where(x[:, 0] < ones * (self.image_size - 1 - min_bb_size), x[:, 0], ones * (self.image_size - 1 - min_bb_size))
-        x[:, 0] = torch.where(x[:, 0] > zeros, x[:, 0], zeros)
-        x[:, 1] = torch.where(x[:, 1] < ones * (self.image_size - 1 - min_bb_size), x[:, 1], ones * (self.image_size - 1 - min_bb_size))
-        x[:, 1] = torch.where(x[:, 1] > zeros, x[:, 1], zeros)
+        # # x1,y1 must be within frame boundries
+        # x[:, 0] = torch.where(x[:, 0] < ones * (self.image_size - 1 - min_bb_size), x[:, 0], ones * (self.image_size - 1 - min_bb_size))
+        # x[:, 0] = torch.where(x[:, 0] > zeros, x[:, 0], zeros)
+        # x[:, 1] = torch.where(x[:, 1] < ones * (self.image_size - 1 - min_bb_size), x[:, 1], ones * (self.image_size - 1 - min_bb_size))
+        # x[:, 1] = torch.where(x[:, 1] > zeros, x[:, 1], zeros)
 
         # height/width can't be negative
         x[:, 2] = torch.where(x[:, 2] > zeros + min_bb_size, x[:, 2], zeros + min_bb_size)
         x[:, 3] = torch.where(x[:, 3] > zeros + min_bb_size, x[:, 3], zeros + min_bb_size)
 
-        # height/width can't be too large
-        # i.e. x2,y2 can't extend beyond frame edges
-        x[:, 2] = torch.where(x[:, 2] < self.image_size - x[:, 0], x[:, 2], self.image_size - x[:, 0])
-        x[:, 0] -= torch.where(zeros > min_bb_size - x[:, 2], zeros, min_bb_size - x[:, 2])
-        x[:, 3] = torch.where(x[:, 3] < self.image_size - x[:, 1], x[:, 3], self.image_size - x[:, 1])
-        x[:, 1] -= torch.where(zeros > min_bb_size - x[:, 3], zeros, min_bb_size - x[:, 3])
+        # # height/width can't be too large
+        # # i.e. x2,y2 can't extend beyond frame edges
+        # x[:, 2] = torch.where(x[:, 2] < self.image_size - x[:, 0], x[:, 2], self.image_size - x[:, 0])
+        # x[:, 0] -= torch.where(zeros > min_bb_size - x[:, 2], zeros, min_bb_size - x[:, 2])
+        # x[:, 3] = torch.where(x[:, 3] < self.image_size - x[:, 1], x[:, 3], self.image_size - x[:, 1])
+        # x[:, 1] -= torch.where(zeros > min_bb_size - x[:, 3], zeros, min_bb_size - x[:, 3])
 
-        if self.translate_mode:
+        if self.translate_mode and self.output_size==4:
             x -= input_bb
 
         return x

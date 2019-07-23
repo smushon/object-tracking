@@ -19,30 +19,27 @@ from tensorboardX import SummaryWriter
 from FocalLoss import *
 import matplotlib.pyplot as plt
 import copy
+from shapely.geometry import Polygon
 
-dataset = 'VOT'
-# dataset = 'OTB'
+# this is output of the script prepro_data.py
+data_path_vot = 'data/mdnet_vot.pkl'
+data_path_vot_quadrilateral = 'data/vot_quadrilateral.pkl'
+data_path_otb = 'data/otb.pkl'
+data_path_default = data_path_vot
 
+quadrilateral = True
 
 # img_home = '/data1/tracking'
 usr_home = os.path.expanduser('~')
 OS = platform.system()
 if OS == 'Windows':
     # usr_home = 'C:/Users/smush/'
-    img_home = os.path.join(usr_home, 'downloads',dataset)
+    img_home_default = os.path.join(usr_home, 'downloads', data_path_default)
 elif OS == 'Linux':
     # usr_home = '~/'
-    img_home = os.path.join(usr_home, 'MDNet-data/' + dataset)
+    img_home_default = os.path.join(usr_home, 'MDNet-data/' + data_path_default)
 else:
     sys.exit("aa! errors!")
-
-# this is output of the script prepro_data.py
-if dataset == 'VOT':
-    data_path = 'data/mdnet_vot.pkl'
-elif dataset == 'OTB':
-    data_path = 'data/otb.pkl'
-else:
-    raise Exception('unknown dataset..................')
 
 import sys
 sys.path.append("..")
@@ -52,6 +49,7 @@ from pathlib import Path, PureWindowsPath
 import options
 device = options.training_device
 opts = options.pretrain_opts
+from tracking.options import tracking_opts
 
 
 # so basically it sets the learning rate for the fc layers to be 10 times that of conv layers
@@ -74,7 +72,8 @@ train_regnet_opts_defaults = {
     'lr': 0.0001,
     'translate_mode': True,
     'direct_loss': True,
-    'fewer_sequences': 0,
+    # 'fewer_sequences': 0,
+    'training_indices': [0,0],
     'dont_save': False,
     'saved_state': None,
     'first_cycle': 0,
@@ -82,27 +81,30 @@ train_regnet_opts_defaults = {
     'limit_frame_per_seq': False,
     'regnet_model_path': '../models/regnet.pth',
     'pre_generate': True,
-    'blackout': False
+    'blackout': False,
+    'data_path': data_path_default,
+    'img_home': img_home_default
 }
 
 
 
 validate_regnet_opts_defaults = {
     'translate_mode': True,
-    'fewer_sequences': False,
+    # 'fewer_sequences': False,
     'saved_state': None,
     'limit_frame_per_seq': False,
     'validation_data_indices': [0,0],
-    'validation_data_path': data_path,
+    'validation_data_path': data_path_default,
     'validation_sub_sample': False,
     'validation_sub_sample_oddness': False,
     'regnet_model_path': '../models/regnet.pth',
-    'blackout': False
+    'blackout': False,
+    'img_home': img_home_default
 }
 
 
-num_fewer_seq = 2 # 30 # 10
-num_frames_per_seq = 16
+# num_fewer_seq = 2 # 30 # 10
+num_frames_per_seq = 2 # 16
 sub_sample = True
 
 # choosing True will accelerate about 15%
@@ -119,7 +121,7 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     img_size_std = opts['img_size']
 
     translate_mode = validate_regnet_opts['translate_mode']
-    fewer_sequences = validate_regnet_opts['fewer_sequences']
+    # fewer_sequences = validate_regnet_opts['fewer_sequences']
     saved_state = validate_regnet_opts['saved_state']
     limit_frame_per_seq = validate_regnet_opts['limit_frame_per_seq']
     validation_data_indices = validate_regnet_opts['validation_data_indices']
@@ -128,6 +130,7 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     validation_sub_sample_oddness = validate_regnet_opts['validation_sub_sample_oddness']
     regnet_model_path = validate_regnet_opts['regnet_model_path']
     blackout = validate_regnet_opts['blackout']
+    img_home = validate_regnet_opts['img_home']
 
     # ------------
 
@@ -171,8 +174,13 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
 
     # -------------
 
-    with open(validation_data_path, 'rb') as fp:
-        data = pickle.load(fp)
+    if quadrilateral:  # this is a bad hack, should be temporary........... !!!!!!!!!!!!
+        with open(data_path_vot_quadrilateral, 'rb') as fp:
+            data = pickle.load(fp)
+    else:
+        with open(validation_data_path, 'rb') as fp:
+            data = pickle.load(fp)
+
 
     # [0] -> starting index, [1] -> number of sequences
     validation_data_indices[0] = max(validation_data_indices[0], 0)
@@ -181,8 +189,8 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     K = len(data) - validation_data_indices[0]
     if validation_data_indices[1] > 0:
         K = min(validation_data_indices[1], K)
-    if fewer_sequences:
-        K = min(num_fewer_seq, K)
+    # if fewer_sequences:
+    #     K = min(num_fewer_seq, K)
 
     dataset = [None] * K
     seqnames = [None] * K
@@ -191,23 +199,32 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
     for j, seqname in enumerate(data):
         if j < validation_data_indices[0]:
             continue
+        seqname.replace("\\", '/')
         print('preparing sequence %d - ' % j + seqname)
 
         k = j - validation_data_indices[0]
         seqnames[k] = seqname
         img_list = data[seqname]['images']
         gt = data[seqname]['gt']  # gt is a ndarray of rectangles
+        if quadrilateral:
+            gt_origin = data[seqname]['gt_origin']
         if validation_sub_sample:  # thin down their number - complementary of training indices !
             if validation_sub_sample_oddness:
                 img_list = img_list[1::2]
                 gt = gt[1::2]
+                if quadrilateral:
+                    gt_origin = gt_origin[1::2]
             else:
                 img_list = img_list[0::2]
                 gt = gt[0::2]
+                if quadrilateral:
+                    gt_origin = gt_origin[0::2]
         if limit_frame_per_seq:
             num_frames[k] = min(len(img_list), num_frames_per_seq)
             img_list = img_list[:num_frames[k]]
             gt = gt[:num_frames[k]]
+            if quadrilateral:
+                gt_origin = gt_origin[:num_frames[k]]
         else:
             num_frames[k] = len(img_list)
         if OS == 'Windows':
@@ -254,7 +271,10 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
             num_ious = sum(num_example_list)
             image_path_list = dataset[k].img_list[frame_numbers]
             image_size = dataset[k].image_size
-            gt_bbox_std_as_tensor = dataset[k].gt_std_as_tensor[frame_numbers]
+            if quadrilateral:
+                gt_bbox_std_as_tensor = dataset[k].gt_origin_std_as_tensor[frame_numbers]
+            else:
+                gt_bbox_std_as_tensor = dataset[k].gt_std_as_tensor[frame_numbers]
 
             feats_bbs = forward_regions(md_model, pos_regions, is_cuda=torch.cuda.is_available())
             # using forward_samples on pos_bbs called crop image with valid==False ...
@@ -284,10 +304,35 @@ def validate_regnet(md_model_path, validate_regnet_opts=validate_regnet_opts_def
 
             bb_refined_std = regnet_model(net_input)
             if translate_mode:
-                bb_refined_std += pos_bbs_std_as_tensor
+                if quadrilateral:
+                    pos_bbs_quadrilateral_std_as_tensor = pos_bbs_std_as_tensor.repeat(1, 2)
+                    pos_bbs_quadrilateral_std_as_tensor[:, 0] = pos_bbs_std_as_tensor[:, 0]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 1] = pos_bbs_std_as_tensor[:, 1] + pos_bbs_std_as_tensor[:, 3]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 2] = pos_bbs_std_as_tensor[:, 0]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 3] = pos_bbs_std_as_tensor[:, 1]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 4] = pos_bbs_std_as_tensor[:, 0] + pos_bbs_std_as_tensor[:, 2]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 5] = pos_bbs_std_as_tensor[:, 1]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 6] = pos_bbs_std_as_tensor[:, 0] + pos_bbs_std_as_tensor[:, 2]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 7] = pos_bbs_std_as_tensor[:, 1] + pos_bbs_std_as_tensor[:, 3]
+                    bb_refined_std += pos_bbs_quadrilateral_std_as_tensor
+                else:
+                    bb_refined_std += pos_bbs_std_as_tensor  # cute bug added expanded_gt_bbox_std_as_tensor...
 
-            iou_scores = torch_overlap_ratio(bb_refined_std, expanded_gt_bbox_std_as_tensor)
-            sample_ious = torch_overlap_ratio(pos_bbs_std_as_tensor, expanded_gt_bbox_std_as_tensor)
+            if quadrilateral:
+                for iter in range(bb_refined_std.shape[0]):
+                    bb_refined_std_pol = Polygon(bb_refined_std[iter,:].reshape(-1,2)).convex_hull
+                    pos_bbs_std_as_tensor_pol = Polygon(pos_bbs_quadrilateral_std_as_tensor[iter,:].reshape(-1,2)).convex_hull
+                    expanded_gt_bbox_std_as_tensor_pol = Polygon(expanded_gt_bbox_std_as_tensor[iter,:].reshape(-1,2)).convex_hull
+                    if iter == 0:
+                        iou_scores = torch.as_tensor([bb_refined_std_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / bb_refined_std_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])
+                        sample_ious = torch.as_tensor([pos_bbs_std_as_tensor_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / pos_bbs_std_as_tensor_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])
+                    else:
+                        iou_scores = torch.cat((iou_scores, torch.as_tensor([bb_refined_std_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / bb_refined_std_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])))
+                        sample_ious = torch.cat((sample_ious, torch.as_tensor([pos_bbs_std_as_tensor_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / pos_bbs_std_as_tensor_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])))
+            else:
+                iou_scores = torch_overlap_ratio(bb_refined_std, expanded_gt_bbox_std_as_tensor)
+                sample_ious = torch_overlap_ratio(pos_bbs_std_as_tensor, expanded_gt_bbox_std_as_tensor)
+
             if k == 0:
                 cycle_iou_results = iou_scores.clone().cpu().data
                 cycle_iou_samples = sample_ious.clone().cpu().data
@@ -338,7 +383,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     lr = train_regnet_opts['lr']
     translate_mode = train_regnet_opts['translate_mode']
     direct_loss = train_regnet_opts['direct_loss']
-    fewer_sequences = train_regnet_opts['fewer_sequences']
+    # fewer_sequences = train_regnet_opts['fewer_sequences']
     dont_save = train_regnet_opts['dont_save']
     saved_state = train_regnet_opts['saved_state']
     first_cycle = train_regnet_opts['first_cycle']
@@ -347,6 +392,9 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     regnet_model_path = train_regnet_opts['regnet_model_path']
     pre_generate = train_regnet_opts['pre_generate']
     blackout = train_regnet_opts['blackout']
+    training_indices = train_regnet_opts['training_indices']
+    data_path = train_regnet_opts['data_path']
+    img_home = train_regnet_opts['img_home']
 
     if pre_generate:
         generate_std = False  # because no need to save much time
@@ -465,14 +513,24 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
 
     # -------------
 
-    with open(data_path, 'rb') as fp:
-        data = pickle.load(fp)
+    if quadrilateral:  # this is a bad hack, should be temporary........... !!!!!!!!!!!!
+        with open(data_path_vot_quadrilateral, 'rb') as fp:
+            data = pickle.load(fp)
+    else:
+        with open(data_path, 'rb') as fp:
+            data = pickle.load(fp)
 
     # K is the number of sequences (58)
-    if fewer_sequences > 0:
-        K = min(len(data), fewer_sequences)
-    else:
-        K = len(data)
+    # [0] -> starting index, [1] -> number of sequences
+    training_indices[0] = max(training_indices[0], 0)
+    training_indices[0] = min(len(data)-1, training_indices[0])
+    K = len(data) - training_indices[0]
+    if training_indices[1] > 0:
+        K = min(training_indices[1], K)
+    # if fewer_sequences > 0:
+    #     K = min(len(data), fewer_sequences)
+    # else:
+    #     K = len(data)
 
     dataset = [None] * K
     seqnames = [None] * K
@@ -480,19 +538,30 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     if pre_generate:
         all_feats_bb = [None] * K
     num_frames = [None] * K
-    for k, seqname in enumerate(data):
-        print('preparing sequence %d - ' % k + seqname)
+    for j, seqname in enumerate(data):
+        if j < training_indices[0]:
+            continue
+        seqname.replace("\\", '/')
+        print('preparing sequence %d - ' % j + seqname)
+        k = j - training_indices[0]
 
         seqnames[k] = seqname
         img_list = data[seqname]['images']
+        img_list = [st.replace('\\', '/') for st in img_list]
         gt = data[seqname]['gt']  # gt is a ndarray of rectangles
+        if quadrilateral:
+            gt_origin = data[seqname]['gt_origin']
         if sub_sample:  # thin down their number
             img_list = img_list[0::2]
             gt = gt[0::2]
+            if quadrilateral:
+                gt_origin = gt_origin[0::2]
         if limit_frame_per_seq:
             num_frames[k] = min(len(img_list), num_frames_per_seq)
             img_list = img_list[:num_frames[k]]
             gt = gt[:num_frames[k]]
+            if quadrilateral:
+                gt_origin = gt_origin[:num_frames[k]]
         else:
             num_frames[k] = len(img_list)
         if OS == 'Windows':
@@ -513,7 +582,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
         #     seq_regions_filename = os.path.join(seq_regions_dir, "/".join(seqname.split('/'))) + '.pth'
         dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts, torch.cuda.is_available(),
                                       generate_std=generate_std, pre_generate=pre_generate,
-                                      seq_regions_filename=seq_regions_filename, blackout=blackout)
+                                      seq_regions_filename=seq_regions_filename, blackout=blackout, gt_origin=gt_origin)
         # dataset[k] = FCDataset(img_dir, img_list, gt, opts)
 
         img_path_list = np.array([os.path.join(img_dir, img) for img in img_list])
@@ -635,7 +704,10 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             num_ious = sum(num_example_list)
             image_path_list = dataset[k].img_list[frame_numbers]
             image_size = dataset[k].image_size
-            gt_bbox_std_as_tensor = dataset[k].gt_std_as_tensor[frame_numbers]
+            if quadrilateral:
+                gt_bbox_std_as_tensor = dataset[k].gt_origin_std_as_tensor[frame_numbers]
+            else:
+                gt_bbox_std_as_tensor = dataset[k].gt_std_as_tensor[frame_numbers]
 
             if pre_generate:
                 for iterator, frame_number in enumerate(frame_numbers):
@@ -682,10 +754,47 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
 
             bb_refined_std = regnet_model(net_input)
             if translate_mode:
-                bb_refined_std += pos_bbs_std_as_tensor  # cute bug added expanded_gt_bbox_std_as_tensor...
+                if quadrilateral:
+                    pos_bbs_quadrilateral_std_as_tensor = pos_bbs_std_as_tensor.repeat(1, 2)
+                    pos_bbs_quadrilateral_std_as_tensor[:, 0] = pos_bbs_std_as_tensor[:, 0]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 1] = pos_bbs_std_as_tensor[:, 1] + pos_bbs_std_as_tensor[:, 3]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 2] = pos_bbs_std_as_tensor[:, 0]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 3] = pos_bbs_std_as_tensor[:, 1]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 4] = pos_bbs_std_as_tensor[:, 0] + pos_bbs_std_as_tensor[:, 2]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 5] = pos_bbs_std_as_tensor[:, 1]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 6] = pos_bbs_std_as_tensor[:, 0] + pos_bbs_std_as_tensor[:, 2]
+                    pos_bbs_quadrilateral_std_as_tensor[:, 7] = pos_bbs_std_as_tensor[:, 1] + pos_bbs_std_as_tensor[:, 3]
+                    bb_refined_std += pos_bbs_quadrilateral_std_as_tensor
+                else:
+                    bb_refined_std += pos_bbs_std_as_tensor  # cute bug added expanded_gt_bbox_std_as_tensor...
 
-            iou_scores = torch_overlap_ratio(bb_refined_std, expanded_gt_bbox_std_as_tensor)
-            sample_ious = torch_overlap_ratio(pos_bbs_std_as_tensor, expanded_gt_bbox_std_as_tensor)
+            if quadrilateral:
+                for iter in range(bb_refined_std.shape[0]):
+                    bb_refined_std_pol = Polygon(bb_refined_std[iter,:].reshape(-1,2)).convex_hull
+                    # if len(bb_refined_std_pol.exterior.coords.xy[0]) < 5:
+                    #     # this is a shitty hack
+                    #     # I would prefer finding which point is "inside" the rectangle
+                    #     # then find closest point on one of its line
+                    #     # lin = pol.exterior.coords
+                    #     # list(lin.coords)
+                    #     # https://stackoverflow.com/questions/33311616/find-coordinate-of-the-closest-point-on-polygon-in-shapely
+                    #     bb_refined_std_pol = bb_refined_std_pol.minimum_rotated_rectangle
+                    # bb_refined_std[iter,:] = torch.as_tensor(bb_refined_std_pol.exterior.coords.xy).transpose(0,1).reshape(1,10)[0,:8]
+                    pos_bbs_std_as_tensor_pol = Polygon(pos_bbs_quadrilateral_std_as_tensor[iter,:].reshape(-1,2)).convex_hull
+                    expanded_gt_bbox_std_as_tensor_pol = Polygon(expanded_gt_bbox_std_as_tensor[iter,:].reshape(-1,2)).convex_hull
+                    # if len(expanded_gt_bbox_std_as_tensor_pol.exterior.coords.xy[0]) < 5:
+                    #     expanded_gt_bbox_std_as_tensor_pol = expanded_gt_bbox_std_as_tensor_pol.minimum_rotated_rectangle
+                    # expanded_gt_bbox_std_as_tensor[iter, :] = torch.as_tensor(expanded_gt_bbox_std_as_tensor_pol.exterior.coords.xy).transpose(0,1).reshape(1, 10)[0, :8]
+                    if iter == 0:
+                        iou_scores = torch.as_tensor([bb_refined_std_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / bb_refined_std_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])
+                        sample_ious = torch.as_tensor([pos_bbs_std_as_tensor_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / pos_bbs_std_as_tensor_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])
+                    else:
+                        iou_scores = torch.cat((iou_scores, torch.as_tensor([bb_refined_std_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / bb_refined_std_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])))
+                        sample_ious = torch.cat((sample_ious, torch.as_tensor([pos_bbs_std_as_tensor_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / pos_bbs_std_as_tensor_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])))
+            else:
+                iou_scores = torch_overlap_ratio(bb_refined_std, expanded_gt_bbox_std_as_tensor)
+                sample_ious = torch_overlap_ratio(pos_bbs_std_as_tensor, expanded_gt_bbox_std_as_tensor)
+
             if j==0:
                 cycle_iou_results = iou_scores.clone().cpu().data
                 cycle_iou_samples = sample_ious.clone().cpu().data
@@ -967,7 +1076,9 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 # datetime_str = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
                 # log_messages.append(datetime_str + ' - ' + log_str)
 
+                # don't grind the HDD with many writes
                 if time.time() - tic_save > 100:
+                    # (mostly) mitigate corruption if ctrl+c while saving file
                     if zig:
                         torch.save(saved_state, regnet_model_path)
                     else:  # za
@@ -987,7 +1098,7 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
     return True, saved_state, i
 
 
-def train_mdnet():
+def train_mdnet(data_path=data_path_default,img_home=img_home_default):
     # Init dataset #
     # to unpickle .pkl in python3 which is pickles in python2, should do like this
     with open(data_path, 'rb') as fp:
@@ -1157,42 +1268,69 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # ----- mdnet related -----
     parser.add_argument('-md', '--train_mdnet', action='store_true')  # defaut: don't traing mdnet
-    # ----- regnet related -----
+    # ----- regnet training -----
     parser.add_argument('-rg', '--train_regnet', action='store_true')  # defaut: don't traing regnet
     parser.add_argument('-tm', '--trained_mdnet', action='store_true')  # default: use original mdnet weights (for feature extraction)
     parser.add_argument('-ir', '--init_regnet', action='store_false')  # default: init regnet (else - cont saved state)
     parser.add_argument('-lr', '--learning_rate', default=0.000001, type=float, help='learning rate')  # starting lr
     parser.add_argument('-flr', '--fixed_learning_rate', action='store_true')  # default: lr changes depending on training precision
-    parser.add_argument('-ot', '--translate_mode', action='store_false')  # default: output as coord shift
     parser.add_argument('-il', '--indirect_loss', action='store_true')  # default: direct (mse) loss
-    # parser.add_argument('-fs', '--fewer_sequences', action='store_true')  # default: train on all dataset sequences
-    parser.add_argument('-fs', '--fewer_sequences', default=0, type=int)  # default: train on all dataset
+    # parser.add_argument('-fs', '--fewer_sequences', default=0, type=int)  # default: train on all dataset
+    parser.add_argument('-ti', '--training_indices', nargs=2, type=int, default=[0, 30])  # start index, number of sequences
     parser.add_argument('-ds', '--dont_save', action='store_true')  # default: save to file best precision model
-    parser.add_argument('-lf', '--limit_frame_per_seq', action='store_true')
-    parser.add_argument('-mp', '--regnet_model_path', default='../models/regnet.pth', type=str)
     parser.add_argument('-pg', '--pre_generate', action='store_true')    # default: continuously generate frames on-the-fly
     parser.add_argument('-bl', '--blackout', action='store_true')  # default: crop and resize sample before feature extraction
     # ----- regnet validation -----
     parser.add_argument('-vrg', '--validate_regnet', action='store_true')  # defaut: don't validate regnet
     parser.add_argument('-vsb', '--validation_sub_sample', action='store_true')  # defaut: don't sub_sample
     parser.add_argument('-vsbo', '--validation_sub_sample_oddness', action='store_true')  # defaut: 0 first index
+    parser.add_argument('-vi', '--validation_data_indices', nargs=2, type=int, default=[30, 15])  # start index, number of sequences
+    # ----- regnet both -----
+    parser.add_argument('-ot', '--translate_mode', action='store_false')  # default: output as coord shift
+    parser.add_argument('-lf', '--limit_frame_per_seq', action='store_true')
+    parser.add_argument('-mp', '--regnet_model_path', default='../models/regnet.pth', type=str)
+    parser.add_argument('-d', '--dataset', default='VOT')
+
     args = parser.parse_args()
+
+    # ------------
+
+    dataset = args.dataset
+    if dataset == 'VOT':
+        data_path = data_path_vot
+    elif dataset == 'OTB':
+        data_path = data_path_otb
+    else:
+        raise Exception('unknown dataset..................')
+
+    if OS == 'Windows':
+        # usr_home = 'C:/Users/smush/'
+        img_home = os.path.join(usr_home, 'downloads', dataset)
+    elif OS == 'Linux':
+        # usr_home = '~/'
+        img_home = os.path.join(usr_home, 'MDNet-data/' + dataset)
+    else:
+        sys.exit("aa! errors!")
 
     # ------------
 
     if args.train_mdnet or force_train_mdnet:
         print('training mdnet')
-        train_mdnet()
+        train_mdnet(data_path=data_path, img_home=img_home)
 
     # ------------
 
     # we need md_model for extracting features from frames
     # these features are used as inputs to the regressor network
     # we selct either the original MDNet paper model, or one that we trained
+    # if args.trained_mdnet:
+    #     md_model_path = pretrain_opts['model_path']
+    # else:
+    #     md_model_path = pretrain_opts['init_model_path']
     if args.trained_mdnet:
-        md_model_path = pretrain_opts['model_path']
+        md_model_path = tracking_opts['new_model_path']
     else:
-        md_model_path = pretrain_opts['init_model_path']
+        md_model_path = tracking_opts['model_path']
     if args.train_regnet or force_train_regnet:
         print('training regnet:')
         print('  learning_rate = %.5g' % (args.learning_rate))
@@ -1216,7 +1354,8 @@ if __name__ == "__main__":
             'lr': args.learning_rate,
             'translate_mode': args.translate_mode,
             'direct_loss': not args.indirect_loss,
-            'fewer_sequences': args.fewer_sequences,
+            # 'fewer_sequences': args.fewer_sequences,
+            'training_indices': args.training_indices,
             'dont_save': args.dont_save,
             'saved_state': saved_state,
             'first_cycle': first_cycle,
@@ -1224,7 +1363,9 @@ if __name__ == "__main__":
             'limit_frame_per_seq': args.limit_frame_per_seq,
             'regnet_model_path': args.regnet_model_path,
             'pre_generate': args.pre_generate,
-            'blackout': args.blackout
+            'blackout': args.blackout,
+            'data_path': data_path,
+            'img_home': img_home
         }
         while not completed:
             # completed, saved_state, first_cycle = train_regnet(md_model_path, init_regnet=init_regnet, lr=args.learning_rate, translate_mode=args.translate_mode, direct_loss=not args.indirect_loss, fewer_sequences=args.fewer_sequences, dont_save=args.dont_save, saved_state=saved_state, first_cycle=first_cycle, fixed_learning_rate=args.fixed_learning_rate)
@@ -1237,15 +1378,17 @@ if __name__ == "__main__":
     if args.validate_regnet:
         validate_regnet_opts = {
             'translate_mode': args.translate_mode,
-            'fewer_sequences': args.fewer_sequences,
+            # 'fewer_sequences': args.fewer_sequences,
             'saved_state': None,
             'limit_frame_per_seq': args.limit_frame_per_seq,
-            'validation_data_indices': [30,15], # vot-[0, 30],[30,15],[45,13] otb-[25,24]
+            # 'validation_data_indices': [30,15], # vot-[0, 30],[30,15],[45,13] otb-[25,24]
+            'validation_data_indices': args.validation_data_indices,
             'validation_data_path': data_path,
             'validation_sub_sample': args.validation_sub_sample,
             'validation_sub_sample_oddness': args.validation_sub_sample_oddness,
             'regnet_model_path': args.regnet_model_path,
-            'blackout': args.blackout
+            'blackout': args.blackout,
+            'img_home': img_home
         }
         validate_regnet(md_model_path, validate_regnet_opts)
 

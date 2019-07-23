@@ -31,6 +31,8 @@ from tracking_utils import *
 import itertools
 from cycler import cycler
 #from pynvml import *
+from shapely.geometry import Polygon
+
 
 np.random.seed(123)
 torch.manual_seed(456)
@@ -94,9 +96,17 @@ elif OS == 'Linux':
 else:
     sys.exit("aa! errors!")
 
-# benchmark_dataset = 'VOT/vot2016'
+# benchmark_dataset = 'VOT'
 benchmark_dataset = 'OTB'
 seq_home = os.path.join(seq_home, benchmark_dataset)
+seqlist_else_walk = False
+seqlist_path = '../pretrain/data/vot_quadrilateral.txt'
+quadrilateral = True
+
+# sanity enforcement
+if benchmark_dataset == 'OTB':
+    quadrilateral = False
+    seqlist_else_walk = False
 
 my_sequence_list = ['DragonBaby', 'Car4', 'Woman']
 show_average_over_sequences = True
@@ -128,13 +138,14 @@ else:  # minimalist - just see the code works
 
 sequence_len_limit = 10  # limit number of frame taken from each sequence
 save_features_to_file = False
-detailed_printing = False
+detailed_printing = True
 
 if load_features_from_file:
     save_features_to_file = False
 
-
+# global variable
 init_after_loss = False  # True - VOT metrics, False - OTB metrics
+
 display_VOT_benchmark = True
 display_OTB_benchmark = True
 # if init_after_loss:  # a VOT benchmark
@@ -177,13 +188,15 @@ else:
     translate_mode = True
 
 use_opencv = False
+update_non_refined_on_fail = False  # True - will use opencv tracker output, False - will use last successful refinement
+
 perform_refinement = True  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
 use_regnet = False
 use_lin_reg = True
-update_non_refined_on_fail = False  # True - will use opencv tracker output, False - will use last successful refinement
 
 # the following can co-exist, but I don't want to return more variables so...
-use_regnet_add_samples_else_self_track = True  # True - expand samples for MDNet input, False - to self-track
+use_regnet_add_samples_else_self_track = False  # True - expand samples for MDNet input, False - to self-track
+
 display_model_loss_details = False
 # ---------------------------------------------------
 
@@ -214,8 +227,13 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
     #################
     if use_regnet:
-        result_regnet_bb = np.zeros((num_images, 4))
-        result_regnet_bb[0] = target_bbox
+        if not quadrilateral:
+            result_regnet_bb = np.zeros((num_images, 4))
+            result_regnet_bb[0] = target_bbox
+        else:
+            result_regnet_bb = np.zeros((num_images, 8))
+            if gt_origin is not None:
+                result_regnet_bb[0] = gt_origin[0]
     #################
 
     #################
@@ -348,10 +366,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     ######################
     # hacks to speed-up execution for debugging on expense of accuracy
     fw_samples = False
+    folder_name = os.path.join('../features', benchmark_dataset)
+    os.makedirs(folder_name, exist_ok=True)
+    pos_file_name = os.path.join(folder_name, seq_name.replace('\\', '/').replace('/', '_') + '_pos_feats.pt')
+    neg_file_name = os.path.join(folder_name, seq_name.replace('\\', '/').replace('/', '_') + '_neg_feats.pt')
     if load_features_from_file:
-        if os.path.isfile('../features/' + seq_name + '_pos_feats.pt') and os.path.isfile('../features/' + seq_name + '_neg_feats.pt'):
-            pos_feats = torch.load('../features/' + seq_name + '_pos_feats.pt')
-            neg_feats = torch.load('../features/' + seq_name + '_neg_feats.pt')
+        if os.path.isfile(pos_file_name) and os.path.isfile(neg_file_name):
+            pos_feats = torch.load(pos_file_name)
+            neg_feats = torch.load(neg_file_name)
         else:
             fw_samples = True
     if fw_samples or (not load_features_from_file):
@@ -365,8 +387,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             pos_feats = forward_samples(model, image, pos_examples)
             neg_feats = forward_samples(model, image, neg_examples)
         if save_features_to_file or fw_samples:
-            torch.save(pos_feats, '../features/' + seq_name + '_pos_feats.pt')
-            torch.save(neg_feats, '../features/' + seq_name + '_neg_feats.pt')
+            torch.save(pos_feats, pos_file_name)
+            torch.save(neg_feats, neg_file_name)
         if detailed_printing:
             print('       finished extracting features from BB samples.')
     ######################
@@ -429,9 +451,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         ax.get_xaxis().set_ticks([])
         ax.get_yaxis().set_ticks([])
 
-        if gt is not None:
+        if (not quadrilateral) and (gt is not None):
             gt_rect = patches.Rectangle(tuple(gt[0, :2]), gt[0, 2], gt[0, 3], linewidth=2, edgecolor="#00ff00", zorder=1, fill=False)
             ax.add_artist(gt_rect)
+            plt.plot([], label='gt', color='#00ff00')
+        elif quadrilateral and (gt_origin is not None):
+            fixed_quad = gt_origin[0].reshape(-1,2)
+            fixed_quad = np.concatenate((fixed_quad, [fixed_quad[0]]), axis=0)
+            gt_quad = patches.Polygon(fixed_quad, linewidth=2, edgecolor="#00ff00", zorder=1, fill=False)
+            ax.add_artist(gt_quad)
             plt.plot([], label='gt', color='#00ff00')
 
         target_rect = patches.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#ff0000", zorder=1, fill=False)
@@ -445,8 +473,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             plt.plot([], label='linreg', color='#0f000f')
 
         if use_regnet:
-            regnet_rect = patches.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#0000ff", zorder=1, fill=False)
-            ax.add_artist(regnet_rect)
+            if not quadrilateral:
+                regnet_rect = patches.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3], linewidth=2, edgecolor="#0000ff", zorder=1, fill=False)
+                ax.add_artist(regnet_rect)
+            elif quadrilateral and (gt_origin is not None):
+                fixed_quad = gt_origin[0].reshape(-1, 2)
+                fixed_quad = np.concatenate((fixed_quad, [fixed_quad[0]]), axis=0)
+                reg_quad = patches.Polygon(fixed_quad, linewidth=2, edgecolor="#0000ff", zorder=1, fill=False)
+                ax.add_artist(reg_quad)
             if perform_refinement:
                 plt.plot([], label='regnet_ref', color='#0000ff')
             else:
@@ -609,7 +643,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     # display failed frame
                     if display:
                         im.set_data(image)
-                        if gt is not None:
+                        if (not quadrilateral) and (gt is not None):
                             if i < gt.shape[0]:
                                 gt_rect.set_xy(gt[i, :2])
                                 gt_rect.set_width(gt[i, 2])
@@ -618,6 +652,10 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                                 gt_rect.set_xy(np.array([np.nan, np.nan]))
                                 gt_rect.set_width(np.nan)
                                 gt_rect.set_height(np.nan)
+                        elif quadrilateral and (gt_origin is not None):
+                            fixed_quad = gt_origin[i].reshape(-1, 2)
+                            fixed_quad = np.concatenate((fixed_quad, [fixed_quad[0]]), axis=0)
+                            gt_quad.set_xy(fixed_quad)
 
                         target_rect.set_xy(result[i, :2])
                         target_rect.set_width(result[i, 2])
@@ -709,7 +747,15 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 else:
                     bb_to_refine = samples[top_idx]  # regnet will refine mdnet best samples
             else:
-                bb_to_refine = np.array([result_regnet_bb[i - 1]])  # regnet will refine its previous output, i.e. self-track
+                if not quadrilateral:
+                    bb_to_refine = np.array([result_regnet_bb[i - 1]])  # regnet will refine its previous output, i.e. self-track
+                else:
+                    x_min = np.min(result_regnet_bb[i - 1, [0, 2, 4, 6]], axis=1)
+                    y_min = np.min(result_regnet_bb[i - 1, [1, 3, 5, 7]], axis=1)
+                    x_max = np.max(result_regnet_bb[i - 1, [0, 2, 4, 6]], axis=1)
+                    y_max = np.max(result_regnet_bb[i - 1, [1, 3, 5, 7]], axis=1)
+                    bb_to_refine = np.concatenate((x_min, y_min, x_max - x_min, y_max - y_min), axis=1)
+
             res_regnet_feats_BB = forward_samples(model, image, bb_to_refine)
             feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
 
@@ -735,7 +781,21 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             with torch.no_grad():
                 result_regnet_bb_refined_std = bb_fc_model(bb_fc_input)
             if translate_mode:
-                result_regnet_bb_refined_std += bb_fc_input[:, -4:]
+                input_bb = bb_fc_input[:, -4:]
+                if quadrilateral:
+                    input_bb_quad = input_bb.repeat(1, 2)
+                    input_bb_quad[:, 0] = input_bb[:, 0]
+                    input_bb_quad[:, 1] = input_bb[:, 1] + input_bb[:, 3]
+                    input_bb_quad[:, 2] = input_bb[:, 0]
+                    input_bb_quad[:, 3] = input_bb[:, 1]
+                    input_bb_quad[:, 4] = input_bb[:, 0] + input_bb[:, 2]
+                    input_bb_quad[:, 5] = input_bb[:, 1]
+                    input_bb_quad[:, 6] = input_bb[:, 0] + input_bb[:, 2]
+                    input_bb_quad[:, 7] = input_bb[:, 1] + input_bb[:, 3]
+                    result_regnet_bb_refined_std += input_bb_quad
+                else:
+                    result_regnet_bb_refined_std += input_bb  # cute bug added expanded_gt_bbox_std_as_tensor...
+                # result_regnet_bb_refined_std += bb_fc_input[:, -4:]
 
             # averaging the refinement results
             result_regnet_bb_refined_std = result_regnet_bb_refined_std.mean(dim=0)
@@ -848,12 +908,21 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 result_ious[i] = overlap_ratio(result_bb[i], gt[i])[0]
                 result_centers[i] = result_bb[i, :2] + result_bb[i, 2:] / 2
 
-                if use_regnet:
+                if quadrilateral and use_regnet and perform_refinement and not use_regnet_add_samples_else_self_track:
+                    None
+                elif use_regnet:
                     result_regnet_ious[i] = overlap_ratio(result_regnet_bb[i], gt[i])[0]
                     result_regnet_centers[i] = result_regnet_bb[i, :2] + result_regnet_bb[i, 2:] / 2
                 elif use_lin_reg and perform_refinement:  # we will compare linreg with non-linreg
                     result_regnet_ious[i] = overlap_ratio(result[i], gt[i])[0]
                     result_regnet_centers[i] = result[i, :2] + result[i, 2:] / 2
+        if gt_origin is not None:
+            if i < gt_origin.shape[0]:
+                if quadrilateral and use_regnet and perform_refinement and not use_regnet_add_samples_else_self_track:
+                    result_regnet_bb_pol = Polygon(result_regnet_bb[i].reshape(-1, 2)).convex_hull
+                    gt_origin_pol = Polygon(gt_origin[i].reshape(-1, 2)).convex_hull
+                    result_regnet_ious[i] = result_regnet_bb_pol.intersection(gt_origin_pol).area / result_regnet_bb_pol.union(gt_origin_pol).area
+                    result_regnet_centers[i] = np.array(result_regnet_bb_pol.centroid)
         #################
 
         # Data collect
@@ -937,7 +1006,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         if display or savefig:
             im.set_data(image)
 
-            if gt is not None:
+            if (not quadrilateral) and (gt is not None):
                 if i<gt.shape[0]:
                     gt_rect.set_xy(gt[i, :2])
                     gt_rect.set_width(gt[i, 2])
@@ -947,6 +1016,10 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     gt_rect.set_xy(np.array([np.nan,np.nan]))
                     gt_rect.set_width(np.nan)
                     gt_rect.set_height(np.nan)
+            elif quadrilateral and (gt_origin is not None):
+                fixed_quad = gt_origin[i].reshape(-1, 2)
+                fixed_quad = np.concatenate((fixed_quad, [fixed_quad[0]]), axis=0)
+                gt_quad.set_xy(fixed_quad)
 
             target_rect.set_xy(result[i, :2])
             target_rect.set_width(result[i, 2])
@@ -958,7 +1031,14 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 linreg_rect.set_height(result_bb[i, 3])
 
             ######################################################
-            if use_regnet:
+            if quadrilateral and use_regnet and perform_refinement and not use_regnet_add_samples_else_self_track:
+                fixed_quad = result_regnet_bb[i].reshape(-1, 2)
+                fixed_quad = np.concatenate((fixed_quad, [fixed_quad[0]]), axis=0)
+                reg_quad.set_xy(fixed_quad)
+            elif use_regnet:
+                # use_regnet_add_samples_else_self_track - regnet highest score refined sample
+                # perform_refinement and not use_regnet_add_samples_else_self_track - regnet refinement of MDNet
+                # not perform_refinement and not use_regnet_add_samples_else_self_track - regnet self-track
                 regnet_rect.set_xy(result_regnet_bb[i, :2])
                 regnet_rect.set_width(result_regnet_bb[i, 2])
                 regnet_rect.set_height(result_regnet_bb[i, 3])
@@ -975,17 +1055,25 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 
             if display:
 
+                str = ''
                 if gt is not None:
                     if i < gt.shape[0]:
                         target_iou = overlap_ratio(result[i], gt[i])[0]
                         str = 'IoU | target: %.3f' % target_iou
                         if perform_refinement and use_lin_reg:
-                            linreg_iou = overlap_ratio(result_bb[i], gt[i])[0]
+                            linreg_iou = result_ious[i]  # same as overlap_ratio(result_bb[i], gt[i])[0]
                             str = str + ' | linreg: %.3f' % linreg_iou
-                        if use_regnet:
-                            regnet_iou = overlap_ratio(result_regnet_bb[i], gt[i])[0]
+                        if quadrilateral and use_regnet and perform_refinement and not use_regnet_add_samples_else_self_track:
+                            None
+                        elif use_regnet:
+                            regnet_iou = result_regnet_ious[i]  # same as overlap_ratio(result_regnet_bb[i], gt[i])[0]
                             str = str + ' | regnet: %.3f' % regnet_iou
-                        plt.xlabel(str)
+                if gt_origin is not None:
+                    if i < gt_origin.shape[0]:
+                        if quadrilateral and use_regnet and perform_refinement and not use_regnet_add_samples_else_self_track:
+                            regnet_iou = result_regnet_ious[i]
+                            str = str + ' | regnet: %.3f' % regnet_iou
+                plt.xlabel(str)
                 plt.pause(.01)
                 # plt.draw()
             if savefig:
@@ -1018,7 +1106,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--seq', default='seq_list', help='input seq')
+    parser.add_argument('-s', '--seq', nargs='+', default='seq_list', help='input seq')
     parser.add_argument('-j', '--json', default='', help='input json')
     parser.add_argument('-f', '--savefig', action='store_true')
     parser.add_argument('-dd', '--dont_display', action='store_true')  # default: display frames with BBs
@@ -1030,6 +1118,7 @@ if __name__ == "__main__":
     # parser.add_argument('-i', '--init_after_loss', action='store_true')
     parser.add_argument('-l', '--lmt_seq', action='store_true')  # limit frames per image
     parser.add_argument('-ln', '--seq_len_lmt', default='0', help='sequence length limit')  # specify frame limit number
+    parser.add_argument('-ds', '--dont_save', action='store_true')  # default: save to file best tracking results
 
     parser.add_argument('-p', '--plt_bnch', action='store_true')  # plot benchmark graphs from saved results
     parser.add_argument('-tr', '--perform_tracking', action='store_true')  # plot benchmark graphs from saved results
@@ -1076,14 +1165,28 @@ if __name__ == "__main__":
 
     if args.seq == 'seq_list':
         sequence_list = my_sequence_list
-    elif args.seq == 'all':
-        sequence_list = next(os.walk(seq_home))[1]
+    elif args.seq == ['all']:
+        if seqlist_else_walk:
+            with open(seqlist_path, 'r') as fp:
+                sequence_list = fp.read().splitlines()
+        else:
+            if benchmark_dataset == 'OTB':
+                sequence_list = next(os.walk(seq_home))[1]
+            else:
+                top_seq_list = next(os.walk(seq_home))[1]
+                sequence_list = []
+                for folder in top_seq_list:
+                    sub_folders = next(os.walk(os.path.join(seq_home, folder)))[1]
+                    for sub_folder in sub_folders:
+                        sequence_list.append(os.path.join(folder, sub_folder))
+
+
         sequence_list.sort()
         ############################ hack ####################################################
         # sequence_list = sequence_list[:5]
         ############################ hack ####################################################
     else:
-        sequence_list = [args.seq]  # e.g. -s DragonBaby
+        sequence_list = args.seq  # e.g. -s DragonBaby
 
     perform_tracking = args.perform_tracking
     display_benchmark_results = args.plt_bnch
@@ -1113,7 +1216,7 @@ if __name__ == "__main__":
 
             # Generate sequence of princeton dataset config
             args.seq = sequence
-            img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args, sub_folder=result_sub_folder)
+            img_list, init_bbox, gt, savefig_dir, display, result_path, gt_origin = prin_gen_config(args, sub_folder=result_sub_folder, benchmark_dataset=benchmark_dataset,quadrilateral=quadrilateral)
             # ------
 
             tracking_start = time.time()
@@ -1198,21 +1301,22 @@ if __name__ == "__main__":
 
 
             # Save result
-            res = {}
-            res['type'] = 'rect'
-            res['fps'] = fps
-            if not init_after_loss:
-                res['res'] = result_bb_avg.round().tolist()
-                res['ious'] = result_ious_avg.tolist()
-                res['regnet_ious'] = result_regnet_ious_avg.tolist()
-                res['distances'] = result_distances_avg.tolist()
-                res['regnet_distances'] = result_regnet_distances_avg.tolist()
-            # else:
-            res['fails_per_seq'] = failures_per_seq_avg
-            res['accuracy'] = accuracy_avg
-            res['regnet_accuracy'] = regnet_accuracy_avg
-            result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
-            json.dump(res, open(result_fullpath, 'w'), indent=2)
+            if not args.dont_save:
+                res = {}
+                res['type'] = 'rect'
+                res['fps'] = fps
+                if not init_after_loss:
+                    res['res'] = result_bb_avg.round().tolist()
+                    res['ious'] = result_ious_avg.tolist()
+                    res['regnet_ious'] = result_regnet_ious_avg.tolist()
+                    res['distances'] = result_distances_avg.tolist()
+                    res['regnet_distances'] = result_regnet_distances_avg.tolist()
+                # else:
+                res['fails_per_seq'] = failures_per_seq_avg
+                res['accuracy'] = accuracy_avg
+                res['regnet_accuracy'] = regnet_accuracy_avg
+                result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' + losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')
+                json.dump(res, open(result_fullpath, 'w'), indent=2)
 
             tracking_time = time.time() - tracking_start
             # print('tracking: | model ' + models_strings[model_index] + ' | loss ' + losses_strings[loss_index] + ' | sequence ' + sequence + ' | elapsed %.3f' % (tracking_time))
@@ -1266,7 +1370,7 @@ if __name__ == "__main__":
             for seq_iter, sequence in enumerate(sequence_list):
 
                 args.seq = sequence
-                img_list, init_bbox, gt, savefig_dir, display, result_path = prin_gen_config(args, sub_folder=result_sub_folder)
+                img_list, init_bbox, gt, savefig_dir, display, result_path, gt_origin = prin_gen_config(args, sub_folder=result_sub_folder, ro=True, benchmark_dataset=benchmark_dataset,quadrilateral=quadrilateral)
 
                 result_fullpath = os.path.join(result_path, 'result_model-' + models_strings[model_index] + '_loss-' +
                                                losses_strings[loss_index] + '_init-' + str(init_after_loss) + '.json')

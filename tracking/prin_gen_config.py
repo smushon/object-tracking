@@ -3,12 +3,10 @@ import json
 import numpy as np
 
 
-def prin_gen_config(args, sub_folder=''):
+def prin_gen_config(args, sub_folder='', ro=False, benchmark_dataset='OTB', quadrilateral=False):
     if args.seq != '':
         # generate config from a sequence name
 
-        # seq_home = '/data1/tracking/princeton/validation'
-        # seq_home = '../dataset/OTB'
         seq_home = args.seq_home
         save_home = '../result_fig'
         result_home = '../result'
@@ -16,11 +14,14 @@ def prin_gen_config(args, sub_folder=''):
             result_home = os.path.join(result_home, sub_folder)
 
         seq_name = args.seq
-        # img_dir = os.path.join(seq_home, seq_name, 'rgb')
-        img_dir = os.path.join(seq_home, seq_name, 'img')
-        # img_dir = seq_home + '/' + seq_name + '/rgb'
-        gt_path = os.path.join(seq_home, seq_name, 'groundtruth_rect.txt')
-        # gt_path = seq_home + '/' + seq_name + '/groundtruth_rect.txt'
+        if benchmark_dataset=='OTB':
+            img_dir = os.path.join(seq_home, seq_name, 'img')
+            gt_path = os.path.join(seq_home, seq_name, 'groundtruth_rect.txt')
+        elif benchmark_dataset=='VOT':
+            img_dir = os.path.join(seq_home, seq_name)
+            gt_path = os.path.join(seq_home, seq_name, 'groundtruth.txt')
+        else:
+            raise Exception('unknown dataset')
 
         # print('loading images from: ', img_dir)
 
@@ -32,14 +33,34 @@ def prin_gen_config(args, sub_folder=''):
             gt = np.loadtxt(gt_path, delimiter=',')
         except:
             gt = np.loadtxt(gt_path)  # delimeter is white spaces
-        if gt.shape[1] == 5:
+        gt_origin = None
+
+        if (gt.shape[1] == 4) and quadrilateral:
+            gt = None
+            print('TBD - transform [x,y,w,h] into [x1,y1,x2,y2,x3,y3,x4,y4]')
+        elif (gt.shape[1] == 5) and not quadrilateral:
+            print('WTF ?? gt.shape[1]=5 ???')
             gt = gt[:, :-1]
+        elif (gt.shape[1] == 5) and quadrilateral:
+            print('WTF ?? gt.shape[1]=5 ???')
+            gt = None
+
+        elif gt.shape[1] == 8:
+            if quadrilateral:
+                gt_origin = gt.copy()
+            x_min = np.min(gt[:, [0, 2, 4, 6]], axis=1)[:, None]
+            y_min = np.min(gt[:, [1, 3, 5, 7]], axis=1)[:, None]
+            x_max = np.max(gt[:, [0, 2, 4, 6]], axis=1)[:, None]
+            y_max = np.max(gt[:, [1, 3, 5, 7]], axis=1)[:, None]
+            gt = np.concatenate((x_min, y_min, x_max - x_min, y_max - y_min), axis=1)
+
         init_bbox = gt[0]
 
         savefig_dir = os.path.join(save_home, seq_name)
         result_dir = os.path.join(result_home, seq_name)
-        # if not os.path.exists(result_dir):
-        os.makedirs(result_dir, exist_ok=True)
+        if not ro:
+            # if not os.path.exists(result_dir):
+            os.makedirs(result_dir, exist_ok=True)
         # result_path = os.path.join(result_dir, 'result.json')
         result_path = result_dir
 
@@ -54,10 +75,10 @@ def prin_gen_config(args, sub_folder=''):
         result_path = param['result_path']
         gt = None
 
-    if args.savefig:
+    if args.savefig and not ro:
         # if not os.path.exists(savefig_dir):
         os.makedirs(savefig_dir, exist_ok=True)
     else:
         savefig_dir = ''
 
-    return img_list, init_bbox, gt, savefig_dir, (not args.dont_display), result_path
+    return img_list, init_bbox, gt, savefig_dir, (not args.dont_display), result_path, gt_origin
