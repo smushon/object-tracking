@@ -8,6 +8,9 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch
 
+from options import *
+
+
 def append_params(params, module, prefix):
     for child in module.children():
         for k, p in child._parameters.items():
@@ -44,6 +47,146 @@ class LRN(nn.Module):
         return x
 
 
+#####################################
+class FlattenLayer(torch.nn.Module):
+    def __init__(self, *args):
+        super(FlattenLayer, self).__init__()
+
+    def forward(self, x):
+        x = x.view(x.size()[0], -1)
+        return x
+
+
+def init_weights(m):
+    if type(m) == nn.Linear:
+        nn.init.kaiming_normal_(m.weight)
+        nn.init.constant_(m.bias, 0.)
+
+        y = m.in_features
+        # m.weight.data.normal_(0.0, 1 / np.sqrt(y))
+        # m.bias.data.fill_(0)
+
+
+        # torch.nn.init.xavier_uniform_(m.weight)
+        # m.bias.data.fill_(0.01)
+
+
+class RegNet(torch.nn.Module):
+    # def __init__(self, *args):
+    # def __init__(self, translate_mode=True, model_path=None, image_size=107):
+    def __init__(self, translate_mode=True, state=None, image_size=107):
+        super(RegNet, self).__init__()
+
+        input_layer_size = 2 * 4608 + 4  # images features, crop features, BB coordinates
+        hidden_layer_size = 4000  # 512
+        hidden_layer2_size = 2000
+        hidden_layer3_size = 500
+        self.output_size = 4 # 4
+
+        self.translate_mode = translate_mode
+        self.image_size = image_size
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, self.output_size)))
+        # ]))
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, self.output_size)))
+        # ]))
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, hidden_layer2_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc3', nn.Sequential(nn.Linear(hidden_layer2_size, self.output_size)))
+        # ]))
+
+        self.layers = nn.Sequential(OrderedDict([
+            ('flatten',  FlattenLayer()),
+            ('fc1', nn.Sequential(nn.Dropout(0.5),
+                                  nn.Linear(input_layer_size, hidden_layer_size),
+                                  nn.LeakyReLU())),
+            ('fc2', nn.Sequential(nn.Dropout(0.5),
+                                  nn.Linear(hidden_layer_size, hidden_layer2_size),
+                                  nn.LeakyReLU())),
+            ('fc3', nn.Sequential(nn.Dropout(0.5),
+                                  nn.Linear(hidden_layer2_size, self.output_size)))
+        ]))
+
+        # self.layers = nn.Sequential(OrderedDict([
+        #     ('flatten',  FlattenLayer()),
+        #     ('fc1', nn.Sequential(nn.Linear(input_layer_size, hidden_layer_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc2', nn.Sequential(nn.Linear(hidden_layer_size, hidden_layer2_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc3', nn.Sequential(nn.Linear(hidden_layer2_size, hidden_layer3_size),
+        #                           nn.LeakyReLU())),
+        #     ('fc4', nn.Sequential(nn.Linear(hidden_layer3_size, self.output_size)))
+        # ]))
+
+
+        # if (model_path is None) or (not os.path.isfile(model_path)):
+        if (state == None) or ('RegNet_layers' not in state.keys()):
+            self.layers.apply(init_weights)
+            # nn.init.kaiming_normal_(self.model.fc1.weight)
+            # nn.init.constant_(self.model.fc1.bias, 0.)
+            # nn.init.kaiming_normal_(self.model.fc2.weight)
+            # nn.init.constant_(self.model.fc2.bias, 0.)
+        else:
+            self.layers.load_state_dict(state['RegNet_layers'])
+            if 'translate_mode' in state.keys():
+                self.translate_mode = state['translate_mode']  # override input
+
+    # x is a BB, output if a refined BB
+    def forward(self, x):
+        if self.translate_mode:
+            input_bb = x.data[:,-4:].clone()
+        for name, module in self.layers.named_children():
+            x = module(x)
+        # x = (x1, y1, width, height)
+
+        if self.translate_mode and self.output_size==4:
+            x += input_bb
+
+        # ----- crop ------
+        # we assume object is in frame and just require fine-tuning, so x should also be in frame
+        # we won't return error if x is out of frame.
+        min_bb_size = 2
+
+        ones = torch.ones_like(x[:, 0])
+        zeros = torch.zeros_like(x[:, 0])
+
+        # # x1,y1 must be within frame boundries
+        # x[:, 0] = torch.where(x[:, 0] < ones * (self.image_size - 1 - min_bb_size), x[:, 0], ones * (self.image_size - 1 - min_bb_size))
+        # x[:, 0] = torch.where(x[:, 0] > zeros, x[:, 0], zeros)
+        # x[:, 1] = torch.where(x[:, 1] < ones * (self.image_size - 1 - min_bb_size), x[:, 1], ones * (self.image_size - 1 - min_bb_size))
+        # x[:, 1] = torch.where(x[:, 1] > zeros, x[:, 1], zeros)
+
+        # height/width can't be negative
+        x[:, 2] = torch.where(x[:, 2] > zeros + min_bb_size, x[:, 2], zeros + min_bb_size)
+        x[:, 3] = torch.where(x[:, 3] > zeros + min_bb_size, x[:, 3], zeros + min_bb_size)
+
+        # # height/width can't be too large
+        # # i.e. x2,y2 can't extend beyond frame edges
+        # x[:, 2] = torch.where(x[:, 2] < self.image_size - x[:, 0], x[:, 2], self.image_size - x[:, 0])
+        # x[:, 0] -= torch.where(zeros > min_bb_size - x[:, 2], zeros, min_bb_size - x[:, 2])
+        # x[:, 3] = torch.where(x[:, 3] < self.image_size - x[:, 1], x[:, 3], self.image_size - x[:, 1])
+        # x[:, 1] -= torch.where(zeros > min_bb_size - x[:, 3], zeros, min_bb_size - x[:, 3])
+
+        if self.translate_mode and self.output_size==4:
+            x -= input_bb
+
+        return x
+
+#####################################
+
+
 class MDNet(nn.Module):
     def __init__(self, model_path=None, K=1):
         super(MDNet, self).__init__()
@@ -68,7 +211,8 @@ class MDNet(nn.Module):
         
         self.branches = nn.ModuleList([nn.Sequential(nn.Dropout(0.5), 
                                                      nn.Linear(512, 2)) for _ in range(K)])
-        
+
+        # print('loading trained model')
         if model_path is not None:
             if os.path.splitext(model_path)[1] == '.pth':
                 self.load_model(model_path)
@@ -135,7 +279,6 @@ class MDNet(nn.Module):
             self.layers[i][0].weight.data = torch.from_numpy(np.transpose(weight, (3,2,0,1)))
             self.layers[i][0].bias.data = torch.from_numpy(bias[:,0])
 
-    
 
 class BinaryLoss(nn.Module):
     def __init__(self):
@@ -163,9 +306,16 @@ class Accuracy():
 
 class Precision():
     def __call__(self, pos_score, neg_score):
-        
-        scores = torch.cat((pos_score[:,1], neg_score[:,1]), 0)
-        topk = torch.topk(scores, pos_score.size(0))[1]
+
+        # returns how many (percentage) of the pos scores are in the top len(pos_scores) amongest all scores
+        scores = torch.cat((pos_score[:,1], neg_score[:,1]), 0)  # concatenate pos- and neg- scores
+        topk = torch.topk(scores, pos_score.size(0))[1]  # indices of topk |pos_scores| pos- and neg- scores
         prec = (topk < pos_score.size(0)).float().sum() / (pos_score.size(0)+1e-8)
-        
-        return prec.data[0]
+
+        #######################
+        if prec.dim() == 0:
+            return prec.data
+        else:
+            return prec.data[0]
+        #######################
+

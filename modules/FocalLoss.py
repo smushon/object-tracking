@@ -40,10 +40,11 @@ class FocalLoss(nn.Module):
         N = inputs.size(0)
         # print(N)
         C = inputs.size(1)
-        P = F.softmax(inputs)
+        P = F.softmax(inputs, dim=1)
 
         class_mask = inputs.data.new(N, C).fill_(0)
         class_mask = Variable(class_mask)
+        targets = targets.long()
         ids = targets.view(-1, 1)
         class_mask.scatter_(1, ids, 1.)
         # print(class_mask)
