@@ -6,6 +6,10 @@ I was a student in the 2nd annual cs231n course organized by the admins of Machi
 This is the code for my object tracking capstone project.
 My presentation can be found here (it's the last one) - https://machinelearning.co.il/3653/dlcourse-final-2/#more-3653
 
+In short, 
+I created a deep neural network for refining the output of tracking networks.
+Was integrated with MDNet for demonstration purpose. 
+
 This is not the prettiest code around, but it works. 
 Usage can be understood from the code.
 Some parameters are not commandline, instead should edit code. 
