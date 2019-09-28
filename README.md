@@ -12,3 +12,5 @@ Some parameters are not commandline, instead should edit code.
 
 Why MDNet?
 No special reason, but once started playing with it, decided to stick with it and base my project on it.
+
+My fovarite models are ~500MB so did not upload. 
