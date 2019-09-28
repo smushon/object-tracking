@@ -184,79 +184,6 @@ class RegNet(torch.nn.Module):
 
         return x
 
-    # old version assuming single frame in batch
-    # x is a BB, output if a refined BB
-    def forward_old(self, x):
-        if self.translate_mode:
-            input_bb = x.data[0,-4:].clone()
-        for name, module in self.layers.named_children():
-            x = module(x)
-        # x = (x1, y1, width, height)
-
-        x = x[0]
-
-        if self.translate_mode:
-            x += input_bb
-
-        # ----- crop ------
-        # we assume object is in frame and just require fine-tuning, so x should also be in frame
-        # we won't return error if x is out of frame.
-        min_bb_size = 2
-
-        # x1,y1 must be within frame boundries
-        x[0] = min(self.image_size-1-min_bb_size, x[0])
-        x[0] = max(0, x[0])
-        x[1] = min(self.image_size-1-min_bb_size, x[1])
-        x[1] = max(0, x[1])
-
-        # height/width can't be negative
-        x[2] = max(0+min_bb_size, x[2])
-        x[3] = max(0+min_bb_size, x[3])
-
-        # height/width can't be too large
-        # i.e. x2,y2 can't extend beyond frame edges
-        if x[0] + x[2] > self.image_size:
-            x[2] = self.image_size - x[0]
-            if x[2] < min_bb_size:
-                x[0] -= (min_bb_size - x[2])
-        if x[1] + x[3] > self.image_size:
-            x[3] = self.image_size - x[1]
-            if x[3] < min_bb_size:
-                x[1] -= (min_bb_size - x[3])
-
-        if self.translate_mode:
-            x -= input_bb
-
-        return x
-
-#####################################
-
-
-#####################################
-class IoUPred(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.layers = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(512, 1),
-        )
-
-    def forward(self, x):
-        scores = None
-        return scores
-
-
-class IoUPredModule(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        self.do = nn.Dropout(0.5)
-        self.fc = nn.Linear(512, 1)
-        nn.init.kaiming_normal_(self.fc.weight)
-
-    def forward(self, x):
-        scores = self.fc(self.do(x))
-        return scores
 #####################################
 
 
@@ -352,7 +279,6 @@ class MDNet(nn.Module):
             self.layers[i][0].weight.data = torch.from_numpy(np.transpose(weight, (3,2,0,1)))
             self.layers[i][0].bias.data = torch.from_numpy(bias[:,0])
 
-    
 
 class BinaryLoss(nn.Module):
     def __init__(self):

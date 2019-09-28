@@ -39,7 +39,7 @@ torch.manual_seed(456)
 torch.cuda.manual_seed(789)
 
 
-# --------------- opencv options --------------------
+# --------------- OTP attributes --------------------
 # Illumination Variation - the illumination in the target region is significantly changed.
 OTB_IL = ['Basketball', 'Box', 'Car1', 'Car2', 'Car24', 'Car4', 'CarDark', 'Coke', 'Crowds', 'David', 'Doll', 'FaceOcc2', 'Fish', 'Human2', 'Human4', 'Human7', 'Human8', 'Human9', 'Ironman', 'KiteSurf', 'Lemming', 'Liquor', 'Man', 'Matrix', 'Mhyang', 'MotorRolling', 'Shaking', 'Singer1', 'Singer2', 'Skating1', 'Skiing', 'Soccer', 'Sylvester', 'Tiger1', 'Tiger2', 'Trans', 'Trellis', 'Woman']
 
@@ -153,31 +153,6 @@ display_OTB_benchmark = True
 ###########################################
 
 
-# --------------- opencv options --------------------
-import cv2
-OPENCV_OBJECT_TRACKERS = {"csrt": cv2.TrackerCSRT_create,
-                          "kcf": cv2.TrackerKCF_create,
-                          "boosting": cv2.TrackerBoosting_create,
-                          "mil": cv2.TrackerMIL_create,
-                          "tld": cv2.TrackerTLD_create,
-                          "medianflow": cv2.TrackerMedianFlow_create,
-                          "mosse": cv2.TrackerMOSSE_create}
-OPENCV_TRACKERS_COLORS = {"csrt": 'yellow',
-                          "kcf": 'blue',
-                          "boosting": 'violet',
-                          "mil": 'magenta',
-                          "tld": 'black',
-                          "medianflow": 'orange',
-                          "mosse": 'cyan'}
-
-tracker_strings_selected = ['kcf', 'mil'] #, 'medianflow']
-
-# # trackers = []
-# trackers_dict = {}
-# for tracker_String in tracker_strings_selected:
-#     # trackers.append(OPENCV_OBJECT_TRACKERS[tracker_String]())
-#     trackers_dict.update( {tracker_String : OPENCV_OBJECT_TRACKERS[tracker_String]()})
-
 bb_fc_model_path = '../models/regnet.pth'
 if not os.path.isfile(bb_fc_model_path):
     raise Exception('no saved RegNet state')
@@ -187,10 +162,7 @@ if 'translate_mode' in regnet_state.keys():
 else:
     translate_mode = True
 
-use_opencv = False
-update_non_refined_on_fail = False  # True - will use opencv tracker output, False - will use last successful refinement
-
-perform_refinement = True  # True - use RegNet/BBregressor to refine BB, False - use opencv/mdnet tracker output as-is
+perform_refinement = True  # True - use RegNet/BBregressor to refine BB, False - use mdnet tracker output as-is
 use_regnet = False
 use_lin_reg = True
 
@@ -261,8 +233,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     # Init criterion
     # criterion = BinaryLoss()
     criterion = FocalLoss(class_num=2, alpha=torch.ones(2, 1)*0.25, size_average=False)
-    iou_loss = MyIoULoss()
-    iou_loss2 = MyIoULoss2()
 
     # Init Optimizers
     # e.g. SGD with a list of 6 parameter groups
@@ -305,31 +275,8 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
     image = Image.open(img_list[0]).convert('RGB')
 
     ######################
-    if use_opencv:
-        # init opencv trackers and refined_bb
-        # bbox = (current_frame_x1, current_frame_y1, current_frame_width, current_frame_height)
-
-        # (re-) instantiate selected trackers before init
-        trackers_dict = {}
-        for tracker_String in tracker_strings_selected:
-            trackers_dict.update({tracker_String: OPENCV_OBJECT_TRACKERS[tracker_String]()})
-
-        # refined_bb_dict will be used to hold the latest best guess for BB for each tracker
-        refined_bb_dict = {}
-        cv_output_dict = {}
-        for (string, tracker) in trackers_dict.items():
-            refined_bb_dict.update({string: target_bbox})
-            cv_output_dict.update({string: [True,target_bbox]})
-            # tracker.clear()
-
-            # init instantiated trackers
-            if not tracker.init(np.array(image), tuple(target_bbox)):
-                raise Exception('error init tracker: ', string)
-            # else:
-            #     print('      success init tracker: ', string)
-
-    # use_regnet - i.e. we can use alongside BBRegressor regardless of opencv
-    # perform_refinement - i.e. we can take opencv/mdnet trackers output as-is
+    # use_regnet - i.e. we can use alongside BBRegressor
+    # perform_refinement - i.e. we can take mdnet trackers output as-is
     if use_regnet:
         bb_fc_model = RegNet(translate_mode=translate_mode, state=regnet_state)
         if 'best_prec' in regnet_state.keys():
@@ -406,7 +353,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         print('       first training pass on FC layers...')
     if loss_index == 2:
         train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
-              iou_loss=iou_loss2, pos_ious=pos_ious, neg_ious=neg_ious, loss_index=loss_index)
+              pos_ious=pos_ious, neg_ious=neg_ious, loss_index=loss_index)
     else:
         train(model, criterion, init_optimizer, pos_feats, neg_feats, opts['maxiter_init'], \
               loss_index=loss_index)
@@ -490,16 +437,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                     plt.plot([], label='regnet_trk', color='#0000ff')
         ######################
 
-        ######################
-        if use_opencv:
-            refined_patch_dict = {}
-            for tracker_String in tracker_strings_selected:
-                print('adding patch for ', tracker_String)
-                refined_patch_dict.update({tracker_String:
-                        plt.Rectangle(tuple(result_bb[0, :2]), result_bb[0, 2], result_bb[0, 3],
-                        linewidth=3, edgecolor=OPENCV_TRACKERS_COLORS[tracker_String], zorder=1, fill=False)})
-                ax.add_patch(refined_patch_dict[tracker_String])
-        ######################
 
         if display:
             plt.pause(.01)
@@ -617,23 +554,11 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 sample_generator.set_trans_f(opts['trans_f_expand'])
 
 
-        ##############################################################
-        if use_opencv:
-            for (cv_string, cv_tracker) in trackers_dict.items():
-                cv_success, cv_BB = cv_tracker.update(np.array(image))
-                cv_output_dict.update({cv_string: [cv_success, cv_BB]})
-        ##############################################################
-
-
         ###########################################
         if gt is not None:
             if i < gt.shape[0]:
                 # identify tracking failure and abort when in VOT mode
-                if use_opencv:
-                    IoU = overlap_ratio(target_bbox, gt[i])[0]
-                    # TBD - instead calculate IoU based on opencv traker(s) !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                else:
-                    IoU = overlap_ratio(target_bbox, gt[i])[0]
+                IoU = overlap_ratio(target_bbox, gt[i])[0]
                 if (IoU == 0) and init_after_loss:
                     print('    * lost track in frame %d since init*' % (i))
                     result_distances = scipy.spatial.distance.cdist(result_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
@@ -661,15 +586,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                         target_rect.set_width(result[i, 2])
                         target_rect.set_height(result[i, 3])
 
-                        #########################################
-                        # draw raw (unrefined) cv trackers output
-                        if use_opencv:
-                            for tracker_String in tracker_strings_selected:
-                                refined_patch_dict[tracker_String].set_xy(cv_output_dict[tracker_String][1][:2])
-                                refined_patch_dict[tracker_String].set_width(cv_output_dict[tracker_String][1][2])
-                                refined_patch_dict[tracker_String].set_height(cv_output_dict[tracker_String][1][3])
-                        #########################################
-
                         plt.pause(2)  # pause longer to observe failure
                         plt.draw()
 
@@ -677,75 +593,11 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
         ########################################
 
 
-
-        ##############################################################
-        if use_opencv:
-            for (cv_string, cv_tracker) in trackers_dict.items():
-                cv_output = cv_output_dict[cv_string]
-                cv_success, cv_BB = cv_output[0], cv_output[1]
-
-                if cv_success:  # opencv tracker will not return a BB otherwise
-                    if perform_refinement and use_regnet:
-
-                        # prepare input for refinement network
-                        cv_feats_BB = forward_samples(model, image, np.array([cv_BB]))
-                        cv_feats_full_frame = forward_samples(model, image, np.array([[0, 0, image.size[0], image.size[1]]]))
-                        cv_BB_std = np.array(cv_BB)
-                        img_size_std = opts['img_size']
-                        cv_BB_std[0] = cv_BB[0] * img_size_std / image.size[0]
-                        cv_BB_std[2] = cv_BB[2] * img_size_std / image.size[0]
-                        cv_BB_std[1] = cv_BB[1] * img_size_std / image.size[1]
-                        cv_BB_std[3] = cv_BB[3] * img_size_std / image.size[1]
-
-                        # with torch.no_grad():
-                        bb_fc_input = torch.cat((cv_feats_BB, cv_feats_full_frame, torch.Tensor(np.array([cv_BB_std]))), dim=1)
-
-                        if opts['use_gpu']:
-                            bb_fc_input = bb_fc_input.to(device=device)
-
-                        # perform refinement
-                        with torch.no_grad():
-                            cv_BB_refined_std = bb_fc_model(bb_fc_input)
-                        if translate_mode:
-                            cv_BB_refined_std += bb_fc_input[0,-4:]
-
-                        # cv_BB_refined_std = cv_BB_refined_std.detach().numpy()
-                        cv_BB_refined_std = cv_BB_refined_std.numpy()
-
-                        # refined BB fail check
-                        # if cv_BB_refined_std[2] < 2 or cv_BB_refined_std[3] < 2:  # BB too small
-                        #     print('      refinement for opencv model ', cv_string, ' failed at frame ', i, ' after init')
-                        #     if update_non_refined_on_fail:
-                        #         refined_bb_dict.update({cv_string: np.array(cv_BB)})
-
-                        # re-scale refined BB back to frame proportions
-                        cv_BB_refined = cv_BB_refined_std
-                        cv_BB_refined[0] = cv_BB_refined_std[0] * image.size[0] / img_size_std
-                        cv_BB_refined[2] = cv_BB_refined_std[2] * image.size[0] / img_size_std
-                        cv_BB_refined[1] = cv_BB_refined_std[1] * image.size[1] / img_size_std
-                        cv_BB_refined[3] = cv_BB_refined_std[3] * image.size[1] / img_size_std
-
-                        # keep refined BB for this tracker
-                        refined_bb_dict.update({cv_string: cv_BB_refined})
-
-                        # use refined BB to re-init the opencv tracker
-                        if not cv_tracker.init(np.array(image), tuple(cv_BB_refined)):
-                            raise Exception('error re-init tracke per refinementr: ', cv_string)
-
-                # nothing to do if opencv tracker fails to track
-                # we can only hope to use re-init procedure from VOT benchmark to re-init tracker that lost track
-                # else:
-                #     print('opencv model ', cv_string, ' failed at frame ', i, ' after init')
-        ##############################################################
-
         ###################################################
         if use_regnet and (perform_refinement or not use_regnet_add_samples_else_self_track):
             # prepare input for refinement network
             if (success or init_after_loss) and perform_refinement:
-                if use_opencv:
-                    bb_to_refine = samples[top_idx]  # regnet will refine opencv - TBD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                else:
-                    bb_to_refine = samples[top_idx]  # regnet will refine mdnet best samples
+                bb_to_refine = samples[top_idx]  # regnet will refine mdnet best samples
             else:
                 if not quadrilateral:
                     bb_to_refine = np.array([result_regnet_bb[i - 1]])  # regnet will refine its previous output, i.e. self-track
@@ -845,62 +697,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             result_regnet_bb[i] = bbregnet_bbox
         ###########################################
 
-        # ###########################################
-        # # previously, a tracking loss (IoU==0) check was here based in result_bb
-        # # but then I decided to base it on result (pre-refinement)
-        # if gt is not None:
-        #     if i < gt.shape[0]:
-        #         # identify tracking failure and abort when in VOT mode
-        #         IoU = overlap_ratio(result_bb[i], gt[i])[0]
-        #         if (IoU == 0) and init_after_loss:
-        #             print('    * lost track in frame %d since init*' % (i))
-        #             result_distances = scipy.spatial.distance.cdist(result_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
-        #             result_regnet_distances = scipy.spatial.distance.cdist(result_regnet_centers[:i], gt_centers[:i], metric='euclidean').diagonal()
-        #             num_images_tracked = i - 1  # we don't count frame 0 and current frame (lost track)
-        #
-        #             # display failed frame
-        #             if display:
-        #                 im.set_data(image)
-        #                 if gt is not None:
-        #                     if i < gt.shape[0]:
-        #                         gt_rect.set_xy(gt[i, :2])
-        #                         gt_rect.set_width(gt[i, 2])
-        #                         gt_rect.set_height(gt[i, 3])
-        #                     else:
-        #                         gt_rect.set_xy(np.array([np.nan, np.nan]))
-        #                         gt_rect.set_width(np.nan)
-        #                         gt_rect.set_height(np.nan)
-        #
-        #                 target_rect.set_xy(result[i, :2])
-        #                 target_rect.set_width(result[i, 2])
-        #                 target_rect.set_height(result[i, 3])
-        #
-        #                 if perform_refinement and use_lin_reg:
-        #                     linreg_rect.set_xy(result_bb[i, :2])
-        #                     linreg_rect.set_width(result_bb[i, 2])
-        #                     linreg_rect.set_height(result_bb[i, 3])
-        #                 ######################################################
-        #                 if use_regnet:
-        #                     regnet_rect.set_xy(result_regnet_bb[i, :2])
-        #                     regnet_rect.set_width(result_regnet_bb[i, 2])
-        #                     regnet_rect.set_height(result_regnet_bb[i, 3])
-        #                 ######################################################
-        #
-        #                 #########################################
-        #                 if use_opencv:
-        #                     for tracker_String in tracker_strings_selected:
-        #                         refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
-        #                         refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
-        #                         refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
-        #                         # draw rectangle based on refined_bb_dict[tracker_String]
-        #                 #########################################
-        #
-        #                 plt.pause(2)  # pause longer to observe failure
-        #                 plt.draw()
-        #
-        #             return result[:i], result_bb[:i], num_images_tracked, spf_total, result_distances, result_ious[:i], result_regnet_distances, result_regnet_ious[:i], True
-        # ########################################
-
         #################
         if gt is not None:
             if i < gt.shape[0]:
@@ -974,7 +770,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
             num_short_updates += 1
             if loss_index == 2:
                 train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
-                      iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
+                      pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
             else:
                 train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
                       loss_index=loss_index)
@@ -994,7 +790,7 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 print('      long term update')
             if loss_index == 2:
                 train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
-                      iou_loss=iou_loss2, pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
+                      pos_ious=pos_iou_data, neg_ious=neg_iou_data, loss_index=loss_index)
             else:
                 train(model, criterion, update_optimizer, pos_data, neg_data, opts['maxiter_update'], \
                       loss_index=loss_index)
@@ -1043,15 +839,6 @@ def run_mdnet(img_list, init_bbox, gt=None, savefig_dir='', display=False, loss_
                 regnet_rect.set_width(result_regnet_bb[i, 2])
                 regnet_rect.set_height(result_regnet_bb[i, 3])
             ######################################################
-
-            #########################################
-            if use_opencv:
-                for tracker_String in tracker_strings_selected:
-                    refined_patch_dict[tracker_String].set_xy(refined_bb_dict[tracker_String][:2])
-                    refined_patch_dict[tracker_String].set_width(refined_bb_dict[tracker_String][2])
-                    refined_patch_dict[tracker_String].set_height(refined_bb_dict[tracker_String][3])
-                    # draw rectangle based on refined_bb_dict[tracker_String]
-            #########################################
 
             if display:
 

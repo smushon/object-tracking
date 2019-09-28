@@ -1,28 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="BookmarkManager">
-    <bookmark url="file://$PROJECT_DIR$/pretrain/train_mdnet.py" line="1272" mnemonic="9" />
+    <bookmark url="file://$PROJECT_DIR$/pretrain/train_mdnet.py" line="1087" mnemonic="9" />
   </component>
   <component name="ChangeListManager">
     <list default="true" id="47d5ed6e-7792-4605-b49a-6838d495418f" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/Bird1_neg_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/Bird1_pos_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/Car4_neg_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/Car4_pos_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/DragonBaby_neg_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/DragonBaby_pos_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/Woman_neg_feats.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/features/Woman_pos_feats.pt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/modules/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/modules/model.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pretrain/data_prov.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/data_prov.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pretrain/prepro_data.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/prepro_data.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pretrain/seq_regions/vot2013/cup.pth" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/seq_regions/vot2013/cup.pth" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pretrain/seq_regions/vot2013/iceskater.pth" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/seq_regions/vot2013/iceskater.pth" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pretrain/temp/seq_regions/vot2014/bicycle.pth" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/pretrain/options.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/options.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pretrain/train_mdnet.py" beforeDir="false" afterPath="$PROJECT_DIR$/pretrain/train_mdnet.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tracking/prin_gen_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/prin_gen_config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tracking/run_tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/run_tracker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tracking/tracking_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/tracking/tracking_utils.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -38,8 +26,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/tracking/run_tracker.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="87">
-              <caret line="1470" column="36" selection-start-line="1470" selection-start-column="20" selection-end-line="1470" selection-end-column="36" />
+            <state relative-caret-position="189">
+              <caret line="1281" lean-forward="true" selection-start-line="1281" selection-end-line="1281" />
               <folding>
                 <element signature="e#0#18#0" expanded="true" />
               </folding>
@@ -50,8 +38,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/pretrain/train_mdnet.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="143">
-              <caret line="377" column="10" selection-start-line="377" selection-start-column="6" selection-end-line="377" selection-end-column="10" />
+            <state relative-caret-position="-17403">
+              <caret line="85" selection-start-line="85" selection-end-line="85" />
               <folding>
                 <element signature="e#0#15#0" expanded="true" />
               </folding>
@@ -62,7 +50,7 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/tracking/options.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="373">
+            <state relative-caret-position="425">
               <caret line="25" column="25" selection-start-line="25" selection-start-column="15" selection-end-line="25" selection-end-column="25" />
               <folding>
                 <element signature="e#0#35#0" expanded="true" />
@@ -74,7 +62,7 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/tracking/prin_gen_config.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="270">
+            <state relative-caret-position="935">
               <caret line="55" selection-start-line="55" selection-end-line="55" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
@@ -86,8 +74,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/pretrain/prepro_data.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="270">
-              <caret line="107" column="8" selection-start-line="107" selection-start-column="8" selection-end-line="111" selection-end-column="86" />
+            <state relative-caret-position="234">
+              <caret line="102" column="73" selection-start-line="102" selection-start-column="73" selection-end-line="102" selection-end-column="73" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -98,8 +86,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/pretrain/options.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="68">
-              <caret line="6" selection-start-line="6" selection-end-line="6" />
+            <state relative-caret-position="33">
+              <caret line="24" column="14" lean-forward="true" selection-start-line="24" selection-start-column="14" selection-end-line="24" selection-end-column="14" />
               <folding>
                 <element signature="e#0#35#0" expanded="true" />
               </folding>
@@ -110,8 +98,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/tracking/tracking_utils.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1615">
-              <caret line="98" column="10" selection-start-line="98" selection-start-column="10" selection-end-line="98" selection-end-column="10" />
+            <state relative-caret-position="986">
+              <caret line="67" selection-start-line="67" selection-end-line="67" />
               <folding>
                 <element signature="e#0#35#0" expanded="true" />
               </folding>
@@ -122,8 +110,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="2284">
-              <caret line="181" column="99" selection-start-line="181" selection-start-column="99" selection-end-line="181" selection-end-column="99" />
+            <state relative-caret-position="761">
+              <caret line="55" column="27" lean-forward="true" selection-start-line="55" selection-start-column="27" selection-end-line="55" selection-end-column="27" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -134,8 +122,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/modules/model.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="700">
-              <caret line="110" column="31" selection-start-line="110" selection-start-column="31" selection-end-line="110" selection-end-column="31" />
+            <state relative-caret-position="2243">
+              <caret line="179" column="93" lean-forward="true" selection-start-line="179" selection-start-column="93" selection-end-line="179" selection-end-column="93" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -154,36 +142,36 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>input_bb</find>
-      <find>pos_bbs_std_as_tensor</find>
-      <find>top_idx</find>
-      <find>centers</find>
-      <find>result_ious</find>
-      <find>result_ious[</find>
-      <find>if quadrilateral and use_regnet and perform_refinement and not use_regnet_add_samples_else_self_track</find>
-      <find>bb_refined_std_pol</find>
-      <find>expanded_gt_bbox_std_as_tensor_pol</find>
-      <find>pos_bbs_std_as_tensor_pol</find>
-      <find>Polygon</find>
-      <find>gt_bbox_std_as_tensor</find>
-      <find>TBD - transform [x1,y1,x2,y2,x3,y3,x4,y4] into [x,y,w,h]</find>
-      <find>seqlist_path</find>
-      <find>quadrilateral</find>
-      <find>result_regnet_bb</find>
-      <find>regnet_iou</find>
-      <find>use_lin_reg</find>
-      <find>overlap_ratio</find>
-      <find>overlap_ratio(result_regnet_bb[i], gt[i])[0]</find>
-      <find>rect</find>
-      <find>gt_quad</find>
-      <find>quad</find>
-      <find>_quad</find>
-      <find>use_reg</find>
       <find>use_re</find>
       <find>img_dir</find>
       <find>'OTB</find>
       <find>detailed_printing</find>
       <find>avg_success_rate</find>
+      <find>IoU =</find>
+      <find>update_non_refined_on_fail</find>
+      <find>perform_refinement</find>
+      <find>generate_</find>
+      <find>opencv</find>
+      <find>num_ious</find>
+      <find>datetime_str</find>
+      <find>argmin_prec</find>
+      <find>argmin_pre</find>
+      <find>img_home</find>
+      <find>regnet_model_path</find>
+      <find>windows</find>
+      <find>FlattenLayer</find>
+      <find>LRN</find>
+      <find>forward_old</find>
+      <find>IoUPred</find>
+      <find>Accuracy(</find>
+      <find>BinaryLoss(</find>
+      <find>Precision(</find>
+      <find>iou_loss2</find>
+      <find>MyIoULoss</find>
+      <find>Accuracy</find>
+      <find>iou_loss</find>
+      <find>init_model_path</find>
+      <find>loss_indices_for_tracking</find>
     </findStrings>
     <replaceStrings>
       <replace>pretrain_opts</replace>
@@ -204,17 +192,17 @@
     <option name="CHANGED_PATHS">
       <list>
         <option value="$PROJECT_DIR$/modules/FocalLoss.py" />
-        <option value="$PROJECT_DIR$/tracking/tracking_utils.py" />
         <option value="$PROJECT_DIR$/modules/utils.py" />
-        <option value="$PROJECT_DIR$/pretrain/options.py" />
         <option value="$PROJECT_DIR$/modules/sample_generator.py" />
         <option value="$PROJECT_DIR$/tracking/options.py" />
-        <option value="$PROJECT_DIR$/pretrain/data_prov.py" />
         <option value="$PROJECT_DIR$/pretrain/prepro_data.py" />
-        <option value="$PROJECT_DIR$/pretrain/train_mdnet.py" />
         <option value="$PROJECT_DIR$/tracking/prin_gen_config.py" />
+        <option value="$PROJECT_DIR$/pretrain/train_mdnet.py" />
+        <option value="$PROJECT_DIR$/pretrain/options.py" />
         <option value="$PROJECT_DIR$/modules/model.py" />
+        <option value="$PROJECT_DIR$/pretrain/data_prov.py" />
         <option value="$PROJECT_DIR$/tracking/run_tracker.py" />
+        <option value="$PROJECT_DIR$/tracking/tracking_utils.py" />
       </list>
     </option>
   </component>
@@ -479,8 +467,9 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="-7" y="-7" width="1550" height="838" extended-state="6" />
+    <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" sideWeight="0.49894738" visible="true" weight="0.20308311" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" sideWeight="0.49894738" visible="true" weight="0.20576407" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Favorites" order="2" sideWeight="0.5010526" side_tool="true" weight="0.18632708" />
       <window_info anchor="bottom" id="Message" order="0" />
@@ -512,62 +501,27 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>1374</line>
+          <line>1187</line>
           <option name="timeStamp" value="241" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>889</line>
-          <option name="timeStamp" value="277" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/prepro_data.py</url>
-          <line>87</line>
-          <option name="timeStamp" value="406" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>999</line>
+          <line>823</line>
           <option name="timeStamp" value="436" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>1384</line>
+          <line>1197</line>
           <option name="timeStamp" value="449" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/modules/model.py</url>
-          <line>346</line>
+          <line>273</line>
           <option name="timeStamp" value="454" />
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/prepro_data.py</url>
-          <line>73</line>
-          <option name="timeStamp" value="457" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>787</line>
-          <option name="timeStamp" value="460" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/train_mdnet.py</url>
-          <line>781</line>
-          <option name="timeStamp" value="461" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/prepro_data.py</url>
-          <line>69</line>
-          <option name="timeStamp" value="464" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/pretrain/prepro_data.py</url>
-          <line>65</line>
-          <option name="timeStamp" value="465" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tracking/run_tracker.py</url>
-          <line>923</line>
+          <line>719</line>
           <option name="timeStamp" value="477" />
         </line-breakpoint>
       </breakpoints>
@@ -840,66 +794,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/tracking_utils.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1615">
-          <caret line="98" column="10" selection-start-line="98" selection-start-column="10" selection-end-line="98" selection-end-column="10" />
-          <folding>
-            <element signature="e#0#35#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2284">
-          <caret line="181" column="99" selection-start-line="181" selection-start-column="99" selection-end-line="181" selection-end-column="99" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/pretrain/prepro_data.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="270">
-          <caret line="107" column="8" selection-start-line="107" selection-start-column="8" selection-end-line="111" selection-end-column="86" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/pretrain/options.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="68">
-          <caret line="6" selection-start-line="6" selection-end-line="6" />
-          <folding>
-            <element signature="e#0#35#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/options.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="373">
-          <caret line="25" column="25" selection-start-line="25" selection-start-column="15" selection-end-line="25" selection-end-column="25" />
-          <folding>
-            <element signature="e#0#35#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/pretrain/train_mdnet.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="143">
-          <caret line="377" column="10" selection-start-line="377" selection-start-column="6" selection-end-line="377" selection-end-column="10" />
-          <folding>
-            <element signature="e#0#15#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$USER_HOME$/Anaconda3/envs/MDNet-p.35-cuda/Lib/site-packages/torch/nn/modules/module.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="1622">
@@ -910,10 +804,10 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/tracking/prin_gen_config.py">
+    <entry file="file://$PROJECT_DIR$/pretrain/data_prov.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="270">
-          <caret line="55" selection-start-line="55" selection-end-line="55" />
+        <state relative-caret-position="761">
+          <caret line="55" column="27" lean-forward="true" selection-start-line="55" selection-start-column="27" selection-end-line="55" selection-end-column="27" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
@@ -922,18 +816,78 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/modules/model.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="700">
-          <caret line="110" column="31" selection-start-line="110" selection-start-column="31" selection-end-line="110" selection-end-column="31" />
+        <state relative-caret-position="2243">
+          <caret line="179" column="93" lean-forward="true" selection-start-line="179" selection-start-column="93" selection-end-line="179" selection-end-column="93" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/tracking/tracking_utils.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="986">
+          <caret line="67" selection-start-line="67" selection-end-line="67" />
+          <folding>
+            <element signature="e#0#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/pretrain/options.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="33">
+          <caret line="24" column="14" lean-forward="true" selection-start-line="24" selection-start-column="14" selection-end-line="24" selection-end-column="14" />
+          <folding>
+            <element signature="e#0#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/pretrain/prepro_data.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="234">
+          <caret line="102" column="73" selection-start-line="102" selection-start-column="73" selection-end-line="102" selection-end-column="73" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tracking/prin_gen_config.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="935">
+          <caret line="55" selection-start-line="55" selection-end-line="55" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tracking/options.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="425">
+          <caret line="25" column="25" selection-start-line="25" selection-start-column="15" selection-end-line="25" selection-end-column="25" />
+          <folding>
+            <element signature="e#0#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/pretrain/train_mdnet.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-17403">
+          <caret line="85" selection-start-line="85" selection-end-line="85" />
+          <folding>
+            <element signature="e#0#15#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/tracking/run_tracker.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="87">
-          <caret line="1470" column="36" selection-start-line="1470" selection-start-column="20" selection-end-line="1470" selection-end-column="36" />
+        <state relative-caret-position="189">
+          <caret line="1281" lean-forward="true" selection-start-line="1281" selection-end-line="1281" />
           <folding>
             <element signature="e#0#18#0" expanded="true" />
           </folding>

@@ -67,37 +67,8 @@ def set_optimizer(model, lr_base, lr_mult=opts['lr_mult'], momentum=opts['moment
     return optimizer
 
 
-# tensor
-class MyIoULoss2(nn.Module):
-    def __init__(self):
-        super(MyIoULoss2, self).__init__()
-
-    def forward(self, pos_scores, neg_scores):
-
-        pos_ious_loss = -0.25 * torch.pow(1 - pos_scores, 2) * pos_scores.log()
-        neg_ious_loss = -0.5 * torch.pow(1 - neg_scores, 2) * neg_scores.log()
-
-        loss = pos_ious_loss.sum() + neg_ious_loss.sum()
-        return loss
-
-
-# numpy array
-class MyIoULoss(nn.Module):
-    def __init__(self):
-        super(MyIoULoss, self).__init__()
-
-    def forward(self, pos_scores, neg_scores):
-        # loss = np.mean(scores - target)
-
-        pos_ious_loss = -0.25 * np.power(1 - pos_scores, 2) * np.log(pos_scores)
-        neg_ious_loss = -0.5 * np.power(1 - neg_scores, 2) * np.log(neg_scores)
-        loss = np.sum(pos_ious_loss) + np.sum(neg_ious_loss)
-
-        return loss
-
-
 def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='fc4',
-          iou_loss=MyIoULoss(), pos_ious=[], neg_ious=[], loss_index=1):
+          pos_ious=[], neg_ious=[], loss_index=1):
     model.train()
 
     batch_pos = opts['batch_pos']
@@ -190,15 +161,10 @@ def train(model, criterion, optimizer, pos_feats, neg_feats, maxiter, in_layer='
             neg_ious_loss = -0.5 * np.power(1 - batch_neg_ious, 2) * np.log(batch_neg_ious)
             ious_loss = np.sum(pos_ious_loss) + np.sum(neg_ious_loss)
 
-            # batch_pos_ious_tensor = torch.from_numpy(batch_pos_ious)
-            # batch_neg_ious_tensor = torch.from_numpy(batch_neg_ious)
-            # ious_loss = iou_loss(batch_pos_ious_tensor, batch_neg_ious_tensor)
-
             # print(ious_loss)
             # print(loss)
 
             loss = 0.5*(loss+ious_loss)
-            # loss = ious_loss
         ##########################
 
         model.zero_grad()

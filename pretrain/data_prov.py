@@ -50,10 +50,7 @@ class PosRegionDataset(data.Dataset):
 
         image = Image.open(self.img_list[0]).convert('RGB')
         self.image_size = image.size
-        # self.pos_generator = SampleGenerator('gaussian', image.size, 0.1, 1.2, 1.1, True)
 
-        # I choose same parameters as tracker sample_generator
-        # pos_generator and neg_generator have different parameters, the whole concept starting to seem wierd
         if not generate_std:
             self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.1, scale_f=1.005, aspect_f=None)  #, valid=True)  # playing around
             # self.pos_generator = SampleGenerator('gaussian', image.size, trans_f=0.6, scale_f=1.05, aspect_f=None)  #, valid=True)

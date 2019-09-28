@@ -33,10 +33,8 @@ quadrilateral = True
 usr_home = os.path.expanduser('~')
 OS = platform.system()
 if OS == 'Windows':
-    # usr_home = 'C:/Users/smush/'
     img_home_default = os.path.join(usr_home, 'downloads', data_path_default)
 elif OS == 'Linux':
-    # usr_home = '~/'
     img_home_default = os.path.join(usr_home, 'MDNet-data/' + data_path_default)
 else:
     sys.exit("aa! errors!")
@@ -85,7 +83,6 @@ train_regnet_opts_defaults = {
     'data_path': data_path_default,
     'img_home': img_home_default
 }
-
 
 
 validate_regnet_opts_defaults = {
@@ -576,10 +573,6 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             seq_regions_filename = os.path.join(seq_regions_dir, *seqname.split('/')) + '.pth'
         else:
             seq_regions_filename = ''
-        # if OS == 'Windows':
-        #     seq_regions_filename = os.path.join(seq_regions_dir, "\\".join(seqname.split('/'))) + '.pth'
-        # else:
-        #     seq_regions_filename = os.path.join(seq_regions_dir, "/".join(seqname.split('/'))) + '.pth'
         dataset[k] = PosRegionDataset(img_dir, img_list, gt, opts, torch.cuda.is_available(),
                                       generate_std=generate_std, pre_generate=pre_generate,
                                       seq_regions_filename=seq_regions_filename, blackout=blackout, gt_origin=gt_origin)
@@ -609,24 +602,6 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 else:
                     all_feats_bb_k = torch.cat((all_feats_bb_k,all_feats_bb_k_batch.cpu()),dim=0)
             all_feats_bb[k] = all_feats_bb_k
-            # else:
-            #     # we can loop over chunks of the regions to till use GPU but in quants
-            #     md_model = md_model.cpu()
-            #     all_feats_bb[k] = forward_regions(md_model, dataset[k].pos_regions, is_cuda=False)
-            #     if torch.cuda.is_available():
-            #         md_model = md_model.cuda()
-
-            # draft of code alternative to training-time expansion loops
-            # gt_bbox_std_as_tensor = dataset[k].gt_std_as_tensor
-            # for iterator, frame_path in enumerate(img_path_list):
-            #     num_examples = dataset[k].batch_pos
-            #     feats_frame = frame_features[k][frame_path]
-            #     if iterator == 0:
-            #         all_feats_frame = feats_frame.repeat(num_examples, 1)
-            #         expanded_gt_bbox_std_as_tensor = gt_bbox_std_as_tensor[iterator].repeat(num_examples, 1)
-            #     else:
-            #         all_feats_frame = torch.cat((all_feats_frame, feats_frame.repeat(num_examples, 1)))
-            #         expanded_gt_bbox_std_as_tensor = torch.cat((expanded_gt_bbox_std_as_tensor, gt_bbox_std_as_tensor[iterator].repeat(num_examples, 1)))
 
         if k + 1 == K:
             break
@@ -771,20 +746,8 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             if quadrilateral:
                 for iter in range(bb_refined_std.shape[0]):
                     bb_refined_std_pol = Polygon(bb_refined_std[iter,:].reshape(-1,2)).convex_hull
-                    # if len(bb_refined_std_pol.exterior.coords.xy[0]) < 5:
-                    #     # this is a shitty hack
-                    #     # I would prefer finding which point is "inside" the rectangle
-                    #     # then find closest point on one of its line
-                    #     # lin = pol.exterior.coords
-                    #     # list(lin.coords)
-                    #     # https://stackoverflow.com/questions/33311616/find-coordinate-of-the-closest-point-on-polygon-in-shapely
-                    #     bb_refined_std_pol = bb_refined_std_pol.minimum_rotated_rectangle
-                    # bb_refined_std[iter,:] = torch.as_tensor(bb_refined_std_pol.exterior.coords.xy).transpose(0,1).reshape(1,10)[0,:8]
                     pos_bbs_std_as_tensor_pol = Polygon(pos_bbs_quadrilateral_std_as_tensor[iter,:].reshape(-1,2)).convex_hull
                     expanded_gt_bbox_std_as_tensor_pol = Polygon(expanded_gt_bbox_std_as_tensor[iter,:].reshape(-1,2)).convex_hull
-                    # if len(expanded_gt_bbox_std_as_tensor_pol.exterior.coords.xy[0]) < 5:
-                    #     expanded_gt_bbox_std_as_tensor_pol = expanded_gt_bbox_std_as_tensor_pol.minimum_rotated_rectangle
-                    # expanded_gt_bbox_std_as_tensor[iter, :] = torch.as_tensor(expanded_gt_bbox_std_as_tensor_pol.exterior.coords.xy).transpose(0,1).reshape(1, 10)[0, :8]
                     if iter == 0:
                         iou_scores = torch.as_tensor([bb_refined_std_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / bb_refined_std_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])
                         sample_ious = torch.as_tensor([pos_bbs_std_as_tensor_pol.intersection(expanded_gt_bbox_std_as_tensor_pol).area / pos_bbs_std_as_tensor_pol.union(expanded_gt_bbox_std_as_tensor_pol).area])
@@ -810,151 +773,17 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             else:
                 raise Exception('need to indirect loss work with batch')
 
-            # -----------------
-
-            # idx = 0
-            # sum_ious = 0
-            # sum_sample_iou = 0
-            # num_ious = 0
-            # total_loss = 0
-            # num_loss_steps = 0
-
-            # we want SGD so we reset grads before each new batch
-            # if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
-            #     regnet_model.zero_grad()
-
-            # # iterting over frames in current batch
-            # for num_examples, frame, gt_bb in zip(num_example_list, image_list, gt_bbox_list):
-            #     num_ious += num_examples
-            #
-            #     # frame = Variable(frame)
-            #     # gt_bb = Variable(gt_bb)
-            #
-            #     # resizing (scaling) GT-BB to fit standard 107x107 frame
-            #     gt_bb_std = gt_bb
-            #     gt_bb_std[0] = gt_bb[0] * img_size_std / frame.size[0]
-            #     gt_bb_std[2] = gt_bb[2] * img_size_std / frame.size[0]
-            #     gt_bb_std[1] = gt_bb[1] * img_size_std / frame.size[1]
-            #     gt_bb_std[3] = gt_bb[3] * img_size_std / frame.size[1]
-            #     if torch.cuda.is_available():
-            #         gt_bb_std_as_tensor = torch.from_numpy(gt_bb_std).float().cuda()
-            #     else:
-            #         gt_bb_std_as_tensor = torch.from_numpy(gt_bb_std).float()
-            #
-            #     # iterating over examples extracted for this frame
-            #     for region, bb in zip(pos_regions[idx:idx+num_examples], pos_bbs[idx:idx+num_examples]):
-            #         # with torch.no_grad():
-            #         feats_bb = forward_samples(md_model, frame, np.array([bb]), is_cuda=torch.cuda.is_available())
-            #         feats_frame = forward_samples(md_model, frame, np.array([[0, 0, frame.size[0], frame.size[1]]]), is_cuda=torch.cuda.is_available())
-            #
-            #         # bb_std = np.array(bb)
-            #         bb_std = bb
-            #         bb_std[0] = bb[0] * img_size_std / frame.size[0]
-            #         bb_std[2] = bb[2] * img_size_std / frame.size[0]
-            #         bb_std[1] = bb[1] * img_size_std / frame.size[1]
-            #         bb_std[3] = bb[3] * img_size_std / frame.size[1]
-            #
-            #         if torch.cuda.is_available():
-            #             bb_std_as_tensor = torch.Tensor(np.array([bb_std])).cuda()
-            #         else:
-            #             bb_std_as_tensor = torch.Tensor(np.array([bb_std]))
-            #
-            #         net_input = torch.cat((feats_bb, feats_frame, bb_std_as_tensor), dim=1)
-            #         # if torch.cuda.is_available():
-            #         #     # net_input = net_input.to(device=device)
-            #         #     net_input = net_input.cuda()
-            #
-            #         bb_refined_std = regnet_model(net_input)
-            #         bb_refined_std = bb_refined_std[0,:]
-            #         if translate_mode:
-            #             bb_refined_std += bb_std_as_tensor[0,:]
-            #
-            #         # iou_score = overlap_ratio(bb_refined, gt_bb)[0]
-            #         iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std_as_tensor)
-            #         sum_ious += iou_score.item()
-            #         sample_iou = torch_overlap_ratio(bb_std_as_tensor[0,:], gt_bb_std_as_tensor)
-            #         # print("sample iou: %.5f" % sample_iou.item())
-            #         sum_sample_iou += sample_iou.item()
-            #
-            #         if direct_loss:
-            #             # loss = RefinementLoss(bb_refined_std, gt_bb_std_as_tensor)
-            #             loss = RefinementLoss(10*(bb_refined_std - gt_bb_std_as_tensor)/img_size_std, torch.zeros_like(gt_bb_std_as_tensor))
-            #         else:
-            #             # ----- iou loss -----------
-            #
-            #             # # iou_score = overlap_ratio(bb_refined, gt_bb)[0]
-            #             # iou_score = torch_overlap_ratio(bb_refined_std, gt_bb_std_as_tensor)
-            #             # sum_ious += iou_score.item()
-            #
-            #             iou_target = torch.ones_like(iou_score)
-            #             if torch.cuda.is_available():
-            #                 # iou_target = iou_target.to(device)
-            #                 iou_target = iou_target.cuda()
-            #
-            #             iou_loss = RefinementLoss(iou_score, iou_target)
-            #
-            #             # ----- distance loss -----------
-            #
-            #             bb_refined_std_center = bb_refined_std[:2] + bb_refined_std[2:] / 2
-            #             gt_bb_std_center_as_tensor = gt_bb_std_as_tensor[:2] + gt_bb_std_as_tensor[2:] / 2
-            #             result_distance = torch.dist(bb_refined_std_center, gt_bb_std_center_as_tensor)
-            #             result_distance_norm = result_distance / img_size_std
-            #
-            #             distance_target = torch.zeros_like(result_distance_norm)
-            #             if torch.cuda.is_available():
-            #                 distance_target = distance_target.cuda()
-            #
-            #             distance_loss = RefinementLoss(result_distance_norm, distance_target)
-            #
-            #             # ----- size loss -----------
-            #
-            #             bb_refined_std_size = bb_refined_std[2]*bb_refined_std[3]
-            #             gt_bb_std_size = gt_bb_std_as_tensor[2]*gt_bb_std_as_tensor[3]
-            #             size_relative = bb_refined_std_size / gt_bb_std_size
-            #             # size_relative = torch.log(size_relative)
-            #
-            #             size_target = torch.ones_like(result_distance_norm)
-            #             if torch.cuda.is_available():
-            #                 size_target = size_target.cuda()
-            #
-            #             size_loss = RefinementLoss(size_relative, size_target)
-            #
-            #             # ----- combined loss -----------
-            #
-            #             if translate_mode:
-            #                 loss = (distance_loss * 5) + (size_loss / 4) #+ iou_loss
-            #             else:
-            #                 loss = distance_loss + size_loss
-            #
-            #         if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
-            #             total_loss += loss
-            #         else:
-            #             # we don't normalize loss because number of back-props before optim.step() isnt deterministic
-            #             loss.backward()
-            #             total_loss += loss.clone().cpu().data
-            #
-            #         num_loss_steps += 1
-            #
-            #     idx += num_examples
-
-            # -----------------
-
             if num_ious == 0:
                 print("skipped")
                 # problematic - this will skew cycle avergae precision calculation
                 continue
 
-            # we want SGD so we update grads only after batch has ended
-            # if not num_loss_steps == num_ious:
-            #     raise Exception('sanity failed: loss_steps = %d, num_iou = %d' % (num_loss_steps, num_ious))
 
-            # total_loss = total_loss / num_ious
-            total_loss = loss  # now working with batches
+            total_loss = loss
             if pretrain_opts['large_memory_gpu'] or not torch.cuda.is_available():
                 total_loss.backward()
             else:
                 raise Exception('did not backward. indirect loss scenario not covered yet.')
-            # torch.nn.utils.clip_grad_norm(regnet_model.parameters(), opts['grad_clip'])  # ??????????????
             optimizer.step()  # no need for 'with torch.no_grad():' since we use optimizer from torch.optim
             regnet_model.zero_grad()
 
@@ -969,10 +798,8 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
                 if total_loss.dim() == 0:
                     total_loss = total_loss.data
                 else:
-                    total_loss = total_loss.data[0]  # what ???????????????????????????????????????????
+                    total_loss = total_loss.data[0]  # dont remember why :(
 
-            # print("Cycle %d (%d), [iter %d/%d] (seq %2d - %-20s), Loss %.5f, IoU %.5f --> %.5f, Time %.3f" % \
-            #           (i, cyc_num, j, K-1, k, seqnames[k], total_loss, curr_cycle_seq_sample_iou[k], curr_cycle_prec_per_seq[k], toc[k]))
             print("iter %d/%d (seq %2d - %-20s), Loss %.5f, IoU %.5f --> %.5f, Time %.3f" % \
                   (j, K - 1, k, seqnames[k], total_loss, curr_cycle_seq_sample_iou[k], curr_cycle_prec_per_seq[k], toc[k]))
 
@@ -993,26 +820,19 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             # this was used before realized proper (small) weight initialization and lr are instrumental
             return False, saved_state, i
         precision_history[K, i - first_cycle] = curr_cycle_prec_per_seq.mean()
-        if i<2000:  # we stop updating argmin_prec after a while
-            argmin_prec = precision_history[:,:i+1].mean(axis=1).argmin()
-        # precision_history[K + 1, i - first_cycle] = curr_cycle_prec_per_seq[np.argsort(curr_cycle_prec_per_seq)[-(K-5):]].mean()
 
         fig = plt.figure(avg_fig_num)
         plt.clf()
         fig.suptitle('curr/best prec: %f/%f -- curr lr: %f -- model %s' % (cur_regnet_prec, best_prec, cur_lr, model_str))  # , fontsize=16)
         plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), last_training_cycle_idx + 1), loss_graphs)  # saved graphs
         plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K, :i - first_cycle + 1])  # average all iou
-        # plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[K + 1, :i - first_cycle + 1])  # average top ious
 
-        # plt.plot(np.arange(i - first_cycle + 1) + last_training_cycle_idx + 1, precision_history[argmin_prec, :i - first_cycle + 1])  # sampled iou
         if not fixed_learning_rate:
             for idx in range(len(lr_marks)):  # plot lr change grid
                 x = lr_marks[idx][1] * np.ones(i - first_cycle + 1 + len(loss_graphs))
                 plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), i - first_cycle + 1 + last_training_cycle_idx + 1), x, 'r--')
                 x = lr_marks[idx][0] * np.ones(i - first_cycle + 1 + len(loss_graphs))
                 plt.plot(np.arange(last_training_cycle_idx + 1 - len(loss_graphs), i - first_cycle + 1 + last_training_cycle_idx + 1), x, 'b--')
-                # x = lr_marks[idx][0] * np.ones(i + 1)
-                # plt.plot(x, 'b--')
         plt.ylabel('average sequence precision (IoU)')
         plt.xlabel('cycle')
 
@@ -1022,8 +842,6 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
 
         print("Curr IoU (avg:std): (%.5f:%.5f) --> (%.5f:%.5f)" % (cycle_iou_samples.mean(), cycle_iou_samples.std(),
                                                                    cur_regnet_prec, cur_regnet_std))
-        # print("Curr IoU (avg:std): (%.5f:%.5f) --> (%.5f:%.5f)" % (curr_cycle_seq_sample_iou.mean(), curr_cycle_seq_sample_iou.std(),
-        #                                                            cur_regnet_prec, cur_regnet_std))
         print("Best IoU (avg:std): (%.5f:%.5f)" % (best_prec, best_std))
         print('median time per sequence: %.3f' % np.median(toc))
         print('expected time per cycle: %.3f' % (np.median(toc)*K))
@@ -1073,8 +891,6 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
             if not dont_save:
                 log_str = "Save regnet_model to %s" % regnet_model_path
                 print(log_str)
-                # datetime_str = datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-                # log_messages.append(datetime_str + ' - ' + log_str)
 
                 # don't grind the HDD with many writes
                 if time.time() - tic_save > 100:
@@ -1088,7 +904,6 @@ def train_regnet(md_model_path, train_regnet_opts=train_regnet_opts_defaults):
 
             if torch.cuda.is_available():
                 regnet_model = regnet_model.cuda()
-
 
     log_str = "best precision (avg:std): (%.5f:%.5f)" % (best_prec, best_std)
     print(log_str)
@@ -1304,10 +1119,8 @@ if __name__ == "__main__":
         raise Exception('unknown dataset..................')
 
     if OS == 'Windows':
-        # usr_home = 'C:/Users/smush/'
         img_home = os.path.join(usr_home, 'downloads', dataset)
     elif OS == 'Linux':
-        # usr_home = '~/'
         img_home = os.path.join(usr_home, 'MDNet-data/' + dataset)
     else:
         sys.exit("aa! errors!")
