@@ -9,3 +9,6 @@ My presentation can be found here (it's the last one) - https://machinelearning.
 This is not the prettiest code around, but it works. 
 Usage can be understood from the code.
 Some parameters are not commandline, instead should edit code. 
+
+Why MDNet?
+No special reason, but once started playing with it, decided to stick with it and base my project on it.
