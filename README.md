@@ -8,13 +8,6 @@ My presentation can be found here (it's the last one) - https://machinelearning.
 
 In short, 
 I created a deep neural network for refining the output of tracking networks.
-Was integrated with MDNet for demonstration purpose. 
 
-This is not the prettiest code around, but it works. 
-Usage can be understood from the code.
-Some parameters are not commandline, instead should edit code. 
+Was integrated with MDNet for demonstration purpose. Why MDNet? No special reason, but once started playing with it, decided to stick with it and base my project on it.
 
-Why MDNet?
-No special reason, but once started playing with it, decided to stick with it and base my project on it.
-
-My favorite models are ~500MB so did not upload. 
