@@ -8,7 +8,7 @@ This is the code for my object tracking capstone project.
 My presentation can be found here (it's the last one) - https://machinelearning.co.il/3653/dlcourse-final-2/#more-3653
 
 Main projects goals:
-1. Study a leading object tracking model – the MDNet model selected
+1. Study a leading object tracking model – the MDNet model was selected
 2. Develop my own tracking refinement method based on a Deep Neural Network architecture (MDNet still used as base tracking model) 
 3. Develop a flexible benchmark (and debugging) framework 
 
