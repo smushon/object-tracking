@@ -12,6 +12,7 @@ Main projects goals:
 3. Develop a flexible benchmark (and debugging) framework 
 
 Detailed & guided overview of the project can be found here (it's the last one) - https://machinelearning.co.il/3653/dlcourse-final-2/#more-3653
+
 Or just open the PPT file. 
 
 Note: project was developed under strict timeline, so don't expect the code to be too friendly :)
