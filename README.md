@@ -1,6 +1,6 @@
 # my cs231n project
 
-Hi, my name is Moshe Karl - https://www.linkedin.com/in/moshekarl/
+Hi, my name is [Moshe Karl](https://www.linkedin.com/in/moshekarl/)
 
 I was a student in the 2nd (annual) class of cs231n local community course organized by the admins of Machine & Deep learning Israel.
 
