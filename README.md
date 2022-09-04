@@ -11,7 +11,6 @@ Main projects goals:
 2. Develop my own tracking refinement method based on a Deep Neural Network architecture (MDNet still used as base tracking model) 
 3. Develop a flexible benchmark (and debugging) framework 
 
-Detailed & guided overview can be found here (it's the last one) - https://machinelearning.co.il/3653/dlcourse-final-2/#more-3653
-Or just open the PPT file. 
+Detailed & guided overview can be found [here](https://machinelearning.co.il/3653/dlcourse-final-2/#more-3653) (it's the last one), or just open the PPT file. 
 
 Note: project was developed under strict timeline, so don't expect the code to be too friendly :)
